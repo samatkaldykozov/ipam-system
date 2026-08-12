@@ -1,0 +1,208 @@
+// Prisma schema for the IPAM (IP Address Management) platform.
+// Uses the Supabase-hosted PostgreSQL database.
+// Run `npx prisma generate` after editing this file.
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum NetworkStatus {
+  ACTIVE
+  RESERVED
+  ARCHIVED
+
+  @@map("network_status")
+}
+
+enum PrefixStatus {
+  ACTIVE
+  RESERVED
+  DEPRECATED
+
+  @@map("prefix_status")
+}
+
+enum IpStatus {
+  AVAILABLE
+  ASSIGNED
+  RESERVED
+  BLOCKED
+
+  @@map("ip_status")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+
+  @@map("audit_action")
+}
+
+// ─────────────────────────────────────────────
+// Role
+// ─────────────────────────────────────────────
+
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  users User[]
+
+  @@map("roles")
+}
+
+// ─────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String   @unique
+  fullName  String?  @map("full_name")
+  isActive  Boolean  @default(true) @map("is_active")
+  roleId    String?  @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  role      Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  auditLogs AuditLog[]
+
+  @@index([roleId])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// Location
+// ─────────────────────────────────────────────
+
+model Location {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique
+  code        String   @unique
+  address     String?
+  city        String?
+  country     String?
+  latitude    Float?
+  longitude   Float?
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  networks Network[]
+
+  @@map("locations")
+}
+
+// ─────────────────────────────────────────────
+// Network
+// ─────────────────────────────────────────────
+
+model Network {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  cidr        String        @unique
+  description String?
+  vlanId      Int?          @map("vlan_id")
+  status      NetworkStatus @default(ACTIVE)
+  locationId  String?       @map("location_id") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  location     Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  prefixes     Prefix[]
+  ipAddresses  IpAddress[]
+
+  @@index([locationId])
+  @@index([status])
+  @@map("networks")
+}
+
+// ─────────────────────────────────────────────
+// Prefix (subnet block within a network)
+// ─────────────────────────────────────────────
+
+model Prefix {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cidr          String       @unique
+  name          String?
+  status        PrefixStatus @default(ACTIVE)
+  description   String?
+  networkId     String       @map("network_id") @db.Uuid
+  parentPrefixId String?     @map("parent_prefix_id") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  network      Network     @relation(fields: [networkId], references: [id], onDelete: Cascade)
+  parentPrefix Prefix?     @relation("PrefixHierarchy", fields: [parentPrefixId], references: [id], onDelete: NoAction)
+  childPrefixes Prefix[]   @relation("PrefixHierarchy")
+  ipAddresses  IpAddress[]
+
+  @@index([networkId])
+  @@index([status])
+  @@index([parentPrefixId])
+  @@map("prefixes")
+}
+
+// ─────────────────────────────────────────────
+// IPAddress
+// ─────────────────────────────────────────────
+
+model IpAddress {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  address     String   @unique
+  hostname    String?
+  macAddress  String?  @map("mac_address")
+  status      IpStatus @default(AVAILABLE)
+  description String?
+  networkId   String   @map("network_id") @db.Uuid
+  prefixId    String?  @map("prefix_id") @db.Uuid
+  assignedAt  DateTime? @map("assigned_at") @db.Timestamptz
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  network Network @relation(fields: [networkId], references: [id], onDelete: Cascade)
+  prefix  Prefix? @relation(fields: [prefixId], references: [id], onDelete: SetNull)
+
+  @@index([networkId])
+  @@index([prefixId])
+  @@index([status])
+  @@map("ip_addresses")
+}
+
+// ─────────────────────────────────────────────
+// AuditLog
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  action    AuditAction
+  entity    String
+  entityId   String?     @map("entity_id")
+  metadata  Json?
+  userId    String?     @map("user_id") @db.Uuid
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity])
+  @@index([action])
+  @@map("audit_logs")
+}
