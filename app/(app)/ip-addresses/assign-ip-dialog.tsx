@@ -34,22 +34,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { createIpAddress } from '@/app/(app)/ip-addresses/actions';
-
-type NetworkOption = { id: string; name: string; cidr: string };
+import {
+  createIpAddress,
+  updateIpAddress,
+} from '@/app/(app)/ip-addresses/actions';
+import {
+  IP_STATUSES,
+  type IpAddressWithNetwork,
+  type NetworkOption,
+} from '@/app/(app)/ip-addresses/types';
 
 interface AssignIpDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   networks: NetworkOption[];
+  ipAddress?: IpAddressWithNetwork | null;
 }
-
-const IP_STATUS_OPTIONS = [
-  { label: 'Available', value: 'AVAILABLE' as const },
-  { label: 'Assigned', value: 'ASSIGNED' as const },
-  { label: 'Reserved', value: 'RESERVED' as const },
-  { label: 'Blocked', value: 'BLOCKED' as const },
-];
 
 const EMPTY: IpAddressValues = {
   address: '',
@@ -64,7 +64,9 @@ export function AssignIpDialog({
   open,
   onOpenChange,
   networks,
+  ipAddress,
 }: AssignIpDialogProps) {
+  const isEdit = !!ipAddress;
   const [submitting, setSubmitting] = React.useState(false);
 
   const form = useForm<IpAddressValues>({
@@ -74,13 +76,26 @@ export function AssignIpDialog({
 
   React.useEffect(() => {
     if (open) {
-      form.reset(EMPTY);
+      if (ipAddress) {
+        form.reset({
+          address: ipAddress.address,
+          hostname: ipAddress.hostname ?? '',
+          macAddress: ipAddress.macAddress ?? '',
+          networkId: ipAddress.networkId,
+          status: ipAddress.status,
+          description: ipAddress.description ?? '',
+        });
+      } else {
+        form.reset(EMPTY);
+      }
     }
-  }, [open, form]);
+  }, [open, ipAddress, form]);
 
   async function onSubmit(values: IpAddressValues) {
     setSubmitting(true);
-    const result = await createIpAddress(values);
+    const result = isEdit
+      ? await updateIpAddress(ipAddress!.id, values)
+      : await createIpAddress(values);
     setSubmitting(false);
 
     if (!result.ok) {
@@ -95,7 +110,9 @@ export function AssignIpDialog({
       return;
     }
 
-    toast.success(result.message ?? 'IP address assigned');
+    toast.success(
+      result.message ?? (isEdit ? 'IP address updated' : 'IP address assigned'),
+    );
     onOpenChange(false);
   }
 
@@ -103,9 +120,11 @@ export function AssignIpDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Assign IP</DialogTitle>
+          <DialogTitle>{isEdit ? 'Edit IP Address' : 'Assign IP'}</DialogTitle>
           <DialogDescription>
-            Assign an IP address to a network and optionally add host details.
+            {isEdit
+              ? 'Update the details for this IP address.'
+              : 'Assign an IP address to a network and optionally add host details.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -175,10 +194,7 @@ export function AssignIpDialog({
                   <FormItem>
                     <FormLabel>MAC Address</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="00:1A:2B:3C:4D:5E"
-                        {...field}
-                      />
+                      <Input placeholder="00:1A:2B:3C:4D:5E" {...field} />
                     </FormControl>
                     <FormDescription>Optional.</FormDescription>
                     <FormMessage />
@@ -200,9 +216,9 @@ export function AssignIpDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {IP_STATUS_OPTIONS.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
+                      {IP_STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s.charAt(0) + s.slice(1).toLowerCase()}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -243,8 +259,10 @@ export function AssignIpDialog({
                 {submitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Assigning…
+                    {isEdit ? 'Saving…' : 'Assigning…'}
                   </>
+                ) : isEdit ? (
+                  'Save changes'
                 ) : (
                   'Assign IP'
                 )}
