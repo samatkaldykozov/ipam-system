@@ -8,6 +8,7 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  CornerDownRight,
   Eye,
   MoreHorizontal,
   Pencil,
@@ -75,18 +76,23 @@ export function NetworksTable({
   const searchParams = useSearchParams();
 
   const [search, setSearch] = React.useState(searchParams.get('q') ?? '');
-  const [status, setStatus] = React.useState(searchParams.get('status') ?? 'ALL');
+  const [status, setStatus] = React.useState(
+    searchParams.get('status') ?? 'ALL',
+  );
   const [sortBy, setSortBy] = React.useState<SortField>(
-    (searchParams.get('sortBy') as SortField) ?? 'createdAt'
+    (searchParams.get('sortBy') as SortField) ?? 'createdAt',
   );
   const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>(
-    searchParams.get('sortOrder') === 'asc' ? 'asc' : 'desc'
+    searchParams.get('sortOrder') === 'asc' ? 'asc' : 'desc',
   );
 
   const [formOpen, setFormOpen] = React.useState(false);
-  const [editTarget, setEditTarget] = React.useState<NetworkWithRelations | null>(null);
-  const [deleteTarget, setDeleteTarget] = React.useState<NetworkWithRelations | null>(null);
-  const [detailTarget, setDetailTarget] = React.useState<NetworkWithRelations | null>(null);
+  const [editTarget, setEditTarget] =
+    React.useState<NetworkWithRelations | null>(null);
+  const [deleteTarget, setDeleteTarget] =
+    React.useState<NetworkWithRelations | null>(null);
+  const [detailTarget, setDetailTarget] =
+    React.useState<NetworkWithRelations | null>(null);
 
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -103,7 +109,7 @@ export function NetworksTable({
       params.set('page', '1');
       router.push(`/networks?${params.toString()}`, { scroll: false });
     },
-    [router, searchParams]
+    [router, searchParams],
   );
 
   function handleSearch(value: string) {
@@ -227,6 +233,7 @@ export function NetworksTable({
                 <TableHead>
                   <SortHeader field="name">Name</SortHeader>
                 </TableHead>
+                <TableHead>Parent</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>VLAN</TableHead>
                 <TableHead>Status</TableHead>
@@ -240,13 +247,25 @@ export function NetworksTable({
             <TableBody>
               {items.map((network) => (
                 <TableRow key={network.id}>
-                  <TableCell className="font-mono text-sm">{network.cidr}</TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {network.cidr}
+                  </TableCell>
                   <TableCell className="font-medium">{network.name}</TableCell>
                   <TableCell>
-                    {network.location ? (
-                      <span className="text-sm">
-                        {network.location.name}
+                    {network.parent ? (
+                      <span className="flex items-center gap-1 text-sm">
+                        <CornerDownRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        {network.parent.cidr}
                       </span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        Top-level
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {network.location ? (
+                      <span className="text-sm">{network.location.name}</span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
@@ -260,7 +279,8 @@ export function NetworksTable({
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusBadgeVariant(network.status)}>
-                      {network.status.charAt(0) + network.status.slice(1).toLowerCase()}
+                      {network.status.charAt(0) +
+                        network.status.slice(1).toLowerCase()}
                     </Badge>
                   </TableCell>
                   <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">

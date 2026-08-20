@@ -37,11 +37,13 @@ import {
 import {
   createNetwork,
   updateNetwork,
+  getAvailableParents,
 } from '@/app/(app)/networks/actions';
 import {
   NETWORK_STATUSES,
   type LocationOption,
   type NetworkWithRelations,
+  type ParentOption,
 } from '@/app/(app)/networks/types';
 
 interface NetworkFormDialogProps {
@@ -57,6 +59,7 @@ const EMPTY: NetworkValues = {
   description: '',
   vlanId: undefined as unknown as number | undefined,
   locationId: undefined,
+  parentId: undefined,
   status: 'ACTIVE',
 };
 
@@ -68,6 +71,7 @@ export function NetworkFormDialog({
 }: NetworkFormDialogProps) {
   const isEdit = !!network;
   const [submitting, setSubmitting] = React.useState(false);
+  const [parentOptions, setParentOptions] = React.useState<ParentOption[]>([]);
 
   const form = useForm<NetworkValues>({
     resolver: zodResolver(networkSchema),
@@ -81,13 +85,16 @@ export function NetworkFormDialog({
           name: network.name,
           cidr: network.cidr,
           description: network.description ?? '',
-          vlanId: network.vlanId ?? (undefined as unknown as number | undefined),
+          vlanId:
+            network.vlanId ?? (undefined as unknown as number | undefined),
           locationId: network.locationId ?? undefined,
+          parentId: network.parentId ?? undefined,
           status: network.status,
         });
       } else {
         form.reset(EMPTY);
       }
+      getAvailableParents(network?.id).then(setParentOptions);
     }
   }, [open, network, form]);
 
@@ -110,7 +117,9 @@ export function NetworkFormDialog({
       return;
     }
 
-    toast.success(result.message ?? (isEdit ? 'Network updated' : 'Network created'));
+    toast.success(
+      result.message ?? (isEdit ? 'Network updated' : 'Network created'),
+    );
     onOpenChange(false);
   }
 
@@ -139,6 +148,44 @@ export function NetworkFormDialog({
                   </FormControl>
                   <FormDescription>
                     The network range in CIDR notation.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="parentId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Parent Network</FormLabel>
+                  <Select
+                    value={field.value ?? 'none'}
+                    onValueChange={(v) =>
+                      field.onChange(v === 'none' ? undefined : v)
+                    }
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="No parent (top-level)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        No parent (top-level)
+                      </SelectItem>
+                      {parentOptions.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.cidr}
+                          {p.name ? ` — ${p.name}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Optional. Leave empty for a top-level allocation, or pick an
+                    existing network to nest this one inside it as a subnet.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -216,7 +263,9 @@ export function NetworkFormDialog({
                   <FormLabel>Location</FormLabel>
                   <Select
                     value={field.value ?? 'none'}
-                    onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
+                    onValueChange={(v) =>
+                      field.onChange(v === 'none' ? undefined : v)
+                    }
                   >
                     <FormControl>
                       <SelectTrigger>

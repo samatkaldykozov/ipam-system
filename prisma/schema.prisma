@@ -25,14 +25,6 @@ enum NetworkStatus {
   @@map("network_status")
 }
 
-enum PrefixStatus {
-  ACTIVE
-  RESERVED
-  DEPRECATED
-
-  @@map("prefix_status")
-}
-
 enum IpStatus {
   AVAILABLE
   ASSIGNED
@@ -112,6 +104,10 @@ model Location {
 
 // ─────────────────────────────────────────────
 // Network
+// A Network is any block of address space identified by CIDR. It can be
+// nested arbitrarily deep inside another Network (parentId) — a top-level
+// allocation (e.g. /16) and a subnet carved out of it (e.g. /24, /28, ...)
+// are the same kind of entity, just at different levels of the same tree.
 // ─────────────────────────────────────────────
 
 model Network {
@@ -122,42 +118,19 @@ model Network {
   vlanId      Int?          @map("vlan_id")
   status      NetworkStatus @default(ACTIVE)
   locationId  String?       @map("location_id") @db.Uuid
+  parentId    String?       @map("parent_id") @db.Uuid
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
-  location     Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  prefixes     Prefix[]
-  ipAddresses  IpAddress[]
+  location    Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  parent      Network?    @relation("NetworkHierarchy", fields: [parentId], references: [id], onDelete: NoAction)
+  children    Network[]   @relation("NetworkHierarchy")
+  ipAddresses IpAddress[]
 
   @@index([locationId])
   @@index([status])
+  @@index([parentId])
   @@map("networks")
-}
-
-// ─────────────────────────────────────────────
-// Prefix (subnet block within a network)
-// ─────────────────────────────────────────────
-
-model Prefix {
-  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  cidr          String       @unique
-  name          String?
-  status        PrefixStatus @default(ACTIVE)
-  description   String?
-  networkId     String       @map("network_id") @db.Uuid
-  parentPrefixId String?     @map("parent_prefix_id") @db.Uuid
-  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz
-
-  network      Network     @relation(fields: [networkId], references: [id], onDelete: Cascade)
-  parentPrefix Prefix?     @relation("PrefixHierarchy", fields: [parentPrefixId], references: [id], onDelete: NoAction)
-  childPrefixes Prefix[]   @relation("PrefixHierarchy")
-  ipAddresses  IpAddress[]
-
-  @@index([networkId])
-  @@index([status])
-  @@index([parentPrefixId])
-  @@map("prefixes")
 }
 
 // ─────────────────────────────────────────────
@@ -172,16 +145,13 @@ model IpAddress {
   status      IpStatus @default(AVAILABLE)
   description String?
   networkId   String   @map("network_id") @db.Uuid
-  prefixId    String?  @map("prefix_id") @db.Uuid
   assignedAt  DateTime? @map("assigned_at") @db.Timestamptz
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   network Network @relation(fields: [networkId], references: [id], onDelete: Cascade)
-  prefix  Prefix? @relation(fields: [prefixId], references: [id], onDelete: SetNull)
 
   @@index([networkId])
-  @@index([prefixId])
   @@index([status])
   @@map("ip_addresses")
 }

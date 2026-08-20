@@ -27,7 +27,9 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
       <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </dt>
-      <dd className="text-sm">{value || <span className="text-muted-foreground">—</span>}</dd>
+      <dd className="text-sm">
+        {value || <span className="text-muted-foreground">—</span>}
+      </dd>
     </div>
   );
 }
@@ -50,12 +52,16 @@ export function NetworkDetailDialog({
         </DialogHeader>
 
         <dl className="grid grid-cols-2 gap-4 py-2">
-          <Field label="CIDR" value={<span className="font-mono">{network.cidr}</span>} />
+          <Field
+            label="CIDR"
+            value={<span className="font-mono">{network.cidr}</span>}
+          />
           <Field
             label="Status"
             value={
               <Badge variant={statusBadgeVariant(network.status)}>
-                {network.status.charAt(0) + network.status.slice(1).toLowerCase()}
+                {network.status.charAt(0) +
+                  network.status.slice(1).toLowerCase()}
               </Badge>
             }
           />
@@ -63,9 +69,21 @@ export function NetworkDetailDialog({
           <Field label="VLAN" value={network.vlanId?.toString()} />
           <Field
             label="Location"
-            value={network.location ? `${network.location.name} (${network.location.code})` : null}
+            value={
+              network.location
+                ? `${network.location.name} (${network.location.code})`
+                : null
+            }
           />
-          <Field label="Prefixes" value={network._count.prefixes} />
+          <Field
+            label="Parent Network"
+            value={
+              network.parent
+                ? `${network.parent.cidr}${network.parent.name ? ` — ${network.parent.name}` : ''}`
+                : 'Top-level (no parent)'
+            }
+          />
+          <Field label="Child Networks" value={network._count.children} />
           <Field label="IP Addresses" value={network._count.ipAddresses} />
           <Field
             label="Created"
@@ -84,7 +102,9 @@ export function NetworkDetailDialog({
             Description
           </p>
           <p className="text-sm">
-            {network.description || <span className="text-muted-foreground">No description</span>}
+            {network.description || (
+              <span className="text-muted-foreground">No description</span>
+            )}
           </p>
         </div>
 

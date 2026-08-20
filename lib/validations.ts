@@ -18,29 +18,22 @@ export const networkSchema = z.object({
     .regex(cidrRegex, 'Enter a valid CIDR, e.g. 10.0.0.0/24'),
   description: z.string().max(500, 'Description is too long').optional(),
   vlanId: z
-    .union([z.coerce.number().int().min(1, 'VLAN must be at least 1').max(4094, 'VLAN must be at most 4094'), z.literal('')])
+    .union([
+      z.coerce
+        .number()
+        .int()
+        .min(1, 'VLAN must be at least 1')
+        .max(4094, 'VLAN must be at most 4094'),
+      z.literal(''),
+    ])
     .optional()
     .transform((v) => (v === '' || v === undefined ? undefined : Number(v))),
   locationId: z.string().optional().nullable(),
+  parentId: z.string().optional().nullable(),
   status: z.enum(['ACTIVE', 'RESERVED', 'ARCHIVED']).default('ACTIVE'),
 });
 
 export type NetworkValues = z.infer<typeof networkSchema>;
-
-export const prefixSchema = z.object({
-  cidr: z
-    .string()
-    .min(1, 'CIDR is required')
-    .max(50, 'CIDR is too long')
-    .regex(cidrRegex, 'Enter a valid CIDR, e.g. 10.0.0.0/24'),
-  name: z.string().max(120, 'Name is too long').optional(),
-  description: z.string().max(500, 'Description is too long').optional(),
-  networkId: z.string().min(1, 'Network is required'),
-  parentPrefixId: z.string().optional().nullable(),
-  status: z.enum(['ACTIVE', 'RESERVED', 'DEPRECATED']).default('ACTIVE'),
-});
-
-export type PrefixValues = z.infer<typeof prefixSchema>;
 
 const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
 
@@ -54,7 +47,9 @@ export const ipAddressSchema = z.object({
     .or(z.literal(''))
     .transform((v) => (v === '' || v === undefined ? undefined : v)),
   networkId: z.string().min(1, 'Network is required'),
-  status: z.enum(['AVAILABLE', 'ASSIGNED', 'RESERVED', 'BLOCKED']).default('AVAILABLE'),
+  status: z
+    .enum(['AVAILABLE', 'ASSIGNED', 'RESERVED', 'BLOCKED'])
+    .default('AVAILABLE'),
   description: z.string().max(500, 'Description is too long').optional(),
 });
 

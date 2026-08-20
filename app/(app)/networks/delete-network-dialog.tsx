@@ -42,7 +42,7 @@ export function DeleteNetworkDialog({
   if (!network) return null;
 
   const hasChildren =
-    network._count.prefixes > 0 || network._count.ipAddresses > 0;
+    network._count.children > 0 || network._count.ipAddresses > 0;
 
   async function handleDelete() {
     setDeleting(true);
@@ -74,14 +74,12 @@ export function DeleteNetworkDialog({
               </p>
               {hasChildren ? (
                 <p className="text-destructive">
-                  This network has {network._count.prefixes} prefix(es) and{' '}
-                  {network._count.ipAddresses} IP address(es) attached. You must
-                  remove them before deleting this network.
+                  This network has {network._count.children} child network(s)
+                  and {network._count.ipAddresses} IP address(es) attached. You
+                  must remove them before deleting this network.
                 </p>
               ) : null}
-              {error ? (
-                <p className="text-destructive">{error}</p>
-              ) : null}
+              {error ? <p className="text-destructive">{error}</p> : null}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>

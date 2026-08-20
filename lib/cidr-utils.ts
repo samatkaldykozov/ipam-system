@@ -32,6 +32,9 @@ export function getPrefixLength(cidr: string): number | null {
   return parsed ? parsed.prefixLength : null;
 }
 
+// True when `childCidr` is fully contained within `parentCidr` (and is at
+// least as specific). Used to enforce that a network's parent must actually
+// be a bigger block it fits inside.
 export function containsCidr(parentCidr: string, childCidr: string): boolean {
   const parent = parseCidr(parentCidr);
   const child = parseCidr(childCidr);
@@ -44,6 +47,8 @@ export function containsCidr(parentCidr: string, childCidr: string): boolean {
   );
 }
 
+// True when two CIDR ranges share any address space. Used to stop sibling
+// networks under the same parent (or two top-level networks) from overlapping.
 export function cidrsOverlap(a: string, b: string): boolean {
   const parsedA = parseCidr(a);
   const parsedB = parseCidr(b);
@@ -54,19 +59,4 @@ export function cidrsOverlap(a: string, b: string): boolean {
   const instanceA = new IPCIDR(a);
   const instanceB = new IPCIDR(b);
   return instanceA.contains(parsedB.start) || instanceB.contains(parsedA.start);
-}
-
-export function isMoreSpecificOrEqual(
-  cidr: string,
-  maxLength: number,
-): boolean {
-  const prefixLength = getPrefixLength(cidr);
-  if (prefixLength === null) return false;
-  return prefixLength >= maxLength;
-}
-
-export function requiresAncestor24(cidr: string): boolean {
-  const prefixLength = getPrefixLength(cidr);
-  if (prefixLength === null) return false;
-  return prefixLength >= 25;
 }
