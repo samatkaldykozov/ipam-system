@@ -10,13 +10,16 @@ import {
   ChevronRight,
   CornerDownRight,
   Eye,
+  List,
   MoreHorizontal,
+  Network as NetworkIcon,
   Pencil,
   Plus,
   Search,
   Trash2,
 } from 'lucide-react';
 
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +54,8 @@ import { NetworkDetailDialog } from '@/app/(app)/networks/network-detail-dialog'
 import {
   STATUS_OPTIONS,
   statusBadgeVariant,
+  buildNetworkTree,
+  flattenNetworkTree,
   type LocationOption,
   type NetworkWithRelations,
   type SortField,
@@ -57,6 +63,7 @@ import {
 
 interface NetworksTableProps {
   items: NetworkWithRelations[];
+  treeItems: NetworkWithRelations[];
   total: number;
   page: number;
   pageSize: number;
@@ -66,6 +73,7 @@ interface NetworksTableProps {
 
 export function NetworksTable({
   items,
+  treeItems,
   total,
   page,
   pageSize,
@@ -93,6 +101,27 @@ export function NetworksTable({
     React.useState<NetworkWithRelations | null>(null);
   const [detailTarget, setDetailTarget] =
     React.useState<NetworkWithRelations | null>(null);
+
+  const [view, setView] = React.useState<'tree' | 'list'>('tree');
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+
+  const tree = React.useMemo(() => buildNetworkTree(treeItems), [treeItems]);
+  const treeRows = React.useMemo(
+    () => flattenNetworkTree(tree, expanded),
+    [tree, expanded],
+  );
+
+  function toggleExpanded(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -179,7 +208,44 @@ export function NetworksTable({
     );
   }
 
-  const hasItems = items.length > 0;
+  function RowActions({ network }: { network: NetworkWithRelations }) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <MoreHorizontal className="h-4 w-4" />
+            <span className="sr-only">Open actions</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+          <DropdownMenuItem onClick={() => setDetailTarget(network)}>
+            <Eye className="mr-2 h-4 w-4" />
+            View details
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              setEditTarget(network);
+              setFormOpen(true);
+            }}
+          >
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => setDeleteTarget(network)}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  const hasItems = view === 'tree' ? treeRows.length > 0 : items.length > 0;
   const start = (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
 
@@ -187,16 +253,39 @@ export function NetworksTable({
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search CIDR, name, VLAN…"
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+        {view === 'list' ? (
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search CIDR, name, VLAN…"
+              value={search}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Showing the full network hierarchy. Switch to List to search.
+          </p>
+        )}
         <div className="flex items-center gap-2">
+          <ToggleGroup
+            type="single"
+            value={view}
+            onValueChange={(value) => {
+              if (value === 'tree' || value === 'list') setView(value);
+            }}
+            className="rounded-md border p-0.5"
+          >
+            <ToggleGroupItem value="tree" size="sm" aria-label="Tree view">
+              <NetworkIcon className="mr-1.5 h-3.5 w-3.5" />
+              Tree
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" size="sm" aria-label="List view">
+              <List className="mr-1.5 h-3.5 w-3.5" />
+              List
+            </ToggleGroupItem>
+          </ToggleGroup>
           <Select value={status} onValueChange={handleStatus}>
             <SelectTrigger className="w-[160px]">
               <SelectValue />
@@ -227,106 +316,160 @@ export function NetworksTable({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>
-                  <SortHeader field="cidr">CIDR</SortHeader>
-                </TableHead>
-                <TableHead>
-                  <SortHeader field="name">Name</SortHeader>
-                </TableHead>
-                <TableHead>Parent</TableHead>
+                {view === 'tree' ? (
+                  <TableHead>Network</TableHead>
+                ) : (
+                  <>
+                    <TableHead>
+                      <SortHeader field="cidr">CIDR</SortHeader>
+                    </TableHead>
+                    <TableHead>
+                      <SortHeader field="name">Name</SortHeader>
+                    </TableHead>
+                    <TableHead>Parent</TableHead>
+                  </>
+                )}
                 <TableHead>Location</TableHead>
                 <TableHead>VLAN</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="max-w-[200px]">Description</TableHead>
-                <TableHead>
-                  <SortHeader field="createdAt">Created</SortHeader>
-                </TableHead>
+                {view === 'list' ? (
+                  <TableHead>
+                    <SortHeader field="createdAt">Created</SortHeader>
+                  </TableHead>
+                ) : null}
                 <TableHead className="w-[60px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((network) => (
-                <TableRow key={network.id}>
-                  <TableCell className="font-mono text-sm">
-                    {network.cidr}
-                  </TableCell>
-                  <TableCell className="font-medium">{network.name}</TableCell>
-                  <TableCell>
-                    {network.parent ? (
-                      <span className="flex items-center gap-1 text-sm">
-                        <CornerDownRight className="h-3.5 w-3.5 text-muted-foreground" />
-                        {network.parent.cidr}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        Top-level
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {network.location ? (
-                      <span className="text-sm">{network.location.name}</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {network.vlanId ? (
-                      <span className="text-sm">{network.vlanId}</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusBadgeVariant(network.status)}>
-                      {network.status.charAt(0) +
-                        network.status.slice(1).toLowerCase()}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
-                    {network.description ?? '—'}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {format(network.createdAt, 'MMM d, yyyy')}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Open actions</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem
-                          onClick={() => setDetailTarget(network)}
-                        >
-                          <Eye className="mr-2 h-4 w-4" />
-                          View details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditTarget(network);
-                            setFormOpen(true);
-                          }}
-                        >
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeleteTarget(network)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {view === 'tree'
+                ? treeRows.map(({ node, depth }) => {
+                    const hasChildren = node.children.length > 0;
+                    const isExpanded = expanded.has(node.id);
+                    return (
+                      <TableRow key={node.id}>
+                        <TableCell>
+                          <div
+                            className="flex items-center gap-1.5"
+                            style={{ paddingLeft: depth * 24 }}
+                          >
+                            {hasChildren ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpanded(node.id)}
+                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-muted"
+                                aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                              >
+                                <ChevronRight
+                                  className={cn(
+                                    'h-3.5 w-3.5 transition-transform',
+                                    isExpanded && 'rotate-90',
+                                  )}
+                                />
+                              </button>
+                            ) : (
+                              <span className="w-5 shrink-0" />
+                            )}
+                            <span className="font-mono text-sm">
+                              {node.cidr}
+                            </span>
+                            <span className="text-sm text-muted-foreground">
+                              {node.name}
+                            </span>
+                            {hasChildren ? (
+                              <Badge
+                                variant="outline"
+                                className="ml-1 shrink-0"
+                              >
+                                {node.children.length}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {node.location ? (
+                            <span className="text-sm">
+                              {node.location.name}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {node.vlanId ? (
+                            <span className="text-sm">{node.vlanId}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusBadgeVariant(node.status)}>
+                            {node.status.charAt(0) +
+                              node.status.slice(1).toLowerCase()}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                          {node.description ?? '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <RowActions network={node} />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                : items.map((network) => (
+                    <TableRow key={network.id}>
+                      <TableCell className="font-mono text-sm">
+                        {network.cidr}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {network.name}
+                      </TableCell>
+                      <TableCell>
+                        {network.parent ? (
+                          <span className="flex items-center gap-1 text-sm">
+                            <CornerDownRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            {network.parent.cidr}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            Top-level
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {network.location ? (
+                          <span className="text-sm">
+                            {network.location.name}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {network.vlanId ? (
+                          <span className="text-sm">{network.vlanId}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusBadgeVariant(network.status)}>
+                          {network.status.charAt(0) +
+                            network.status.slice(1).toLowerCase()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                        {network.description ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {format(network.createdAt, 'MMM d, yyyy')}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <RowActions network={network} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
             </TableBody>
           </Table>
         </div>
@@ -350,7 +493,7 @@ export function NetworksTable({
       )}
 
       {/* Pagination */}
-      {hasItems && totalPages > 1 ? (
+      {view === 'list' && hasItems && totalPages > 1 ? (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Showing {start}–{end} of {total}

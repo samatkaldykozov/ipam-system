@@ -117,6 +117,25 @@ export async function getNetworks(params: {
   };
 }
 
+// Full, unpaginated set of networks for the tree view. Text search doesn't
+// make sense once results are nested (a match buried three levels deep would
+// need its whole ancestor chain pulled in too), so this only honors the
+// status filter; the flat/paginated view above still supports free-text search.
+export async function getNetworkTree(status: NetworkStatus | 'ALL' = 'ALL') {
+  const where: Prisma.NetworkWhereInput = {};
+  if (status !== 'ALL') where.status = status;
+
+  return prisma.network.findMany({
+    where,
+    include: {
+      location: true,
+      parent: { select: { id: true, cidr: true, name: true } },
+      _count: { select: { children: true, ipAddresses: true } },
+    },
+    orderBy: { cidr: 'asc' },
+  });
+}
+
 export async function getNetwork(id: string) {
   return prisma.network.findUnique({
     where: { id },

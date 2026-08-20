@@ -3,14 +3,13 @@ import { NetworkStatus } from '@prisma/client';
 
 import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NetworksTable } from '@/app/(app)/networks/networks-table';
-import { getNetworks, getLocations } from '@/app/(app)/networks/actions';
+import {
+  getNetworks,
+  getNetworkTree,
+  getLocations,
+} from '@/app/(app)/networks/actions';
 import type { SortField } from '@/app/(app)/networks/types';
 
 const PAGE_SIZE = 10;
@@ -28,7 +27,10 @@ function NetworksSkeleton() {
       <div className="rounded-lg border">
         <div className="space-y-0">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 border-b p-4 last:border-0">
+            <div
+              key={i}
+              className="flex items-center gap-4 border-b p-4 last:border-0"
+            >
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-4 w-40" />
               <Skeleton className="h-4 w-24" />
@@ -60,8 +62,16 @@ export default async function NetworksPage({
   const sortOrder = get('sortOrder') === 'asc' ? 'asc' : 'desc';
   const page = Math.max(1, parseInt(get('page') ?? '1', 10) || 1);
 
-  const [data, locations] = await Promise.all([
-    getNetworks({ search, status, sortBy, sortOrder, page, pageSize: PAGE_SIZE }),
+  const [data, treeItems, locations] = await Promise.all([
+    getNetworks({
+      search,
+      status,
+      sortBy,
+      sortOrder,
+      page,
+      pageSize: PAGE_SIZE,
+    }),
+    getNetworkTree(status),
     getLocations(),
   ]);
 
@@ -80,6 +90,7 @@ export default async function NetworksPage({
           <Suspense fallback={<NetworksSkeleton />}>
             <NetworksTable
               items={data.items}
+              treeItems={treeItems}
               total={data.total}
               page={data.page}
               pageSize={data.pageSize}
