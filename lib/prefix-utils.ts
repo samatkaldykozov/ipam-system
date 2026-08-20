@@ -11,10 +11,10 @@ function parseCidr(cidr: string): ParsedCidr | null {
   try {
     const instance = new IPCIDR(cidr);
     if (!instance.address) return null;
-    const start = instance.start({ type: 'addressObject' });
-    const end = instance.end({ type: 'addressObject' });
-    const startStr = typeof start === 'string' ? start : start.address;
-    const endStr = typeof end === 'string' ? end : end.address;
+    const start = instance.start<IPCIDR.Address>({ type: 'addressObject' });
+    const end = instance.end<IPCIDR.Address>({ type: 'addressObject' });
+    const startStr = start.address;
+    const endStr = end.address;
     const prefixLength = parseInt(cidr.split('/')[1] ?? '', 10);
     if (Number.isNaN(prefixLength)) return null;
     return { cidr, prefixLength, start: startStr, end: endStr };
@@ -39,7 +39,9 @@ export function containsCidr(parentCidr: string, childCidr: string): boolean {
   if (parent.prefixLength > child.prefixLength) return false;
 
   const parentInstance = new IPCIDR(parentCidr);
-  return parentInstance.contains(child.start) && parentInstance.contains(child.end);
+  return (
+    parentInstance.contains(child.start) && parentInstance.contains(child.end)
+  );
 }
 
 export function cidrsOverlap(a: string, b: string): boolean {
@@ -54,7 +56,10 @@ export function cidrsOverlap(a: string, b: string): boolean {
   return instanceA.contains(parsedB.start) || instanceB.contains(parsedA.start);
 }
 
-export function isMoreSpecificOrEqual(cidr: string, maxLength: number): boolean {
+export function isMoreSpecificOrEqual(
+  cidr: string,
+  maxLength: number,
+): boolean {
   const prefixLength = getPrefixLength(cidr);
   if (prefixLength === null) return false;
   return prefixLength >= maxLength;
