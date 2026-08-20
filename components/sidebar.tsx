@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
+  ListTree,
   Network,
   Server,
   Settings,
@@ -16,6 +17,7 @@ import { siteConfig } from '@/lib/site-config';
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
+  ListTree,
   Network,
   Server,
   Settings,
@@ -30,7 +32,9 @@ export function Sidebar() {
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <Network className="h-4 w-4" />
         </div>
-        <span className="text-lg font-semibold tracking-tight">{siteConfig.name}</span>
+        <span className="text-lg font-semibold tracking-tight">
+          {siteConfig.name}
+        </span>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
@@ -48,7 +52,7 @@ export function Sidebar() {
                 'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 active
                   ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
               )}
             >
               <Icon className="h-4 w-4" />
