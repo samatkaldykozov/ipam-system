@@ -1,5 +1,4 @@
 import { cn } from '@/lib/utils';
-import { Progress } from '@/components/ui/progress';
 import { getNetworkCapacity } from '@/lib/cidr-utils';
 
 interface NetworkUtilizationProps {
@@ -47,7 +46,18 @@ export function NetworkUtilization({
         </span>
         <span>{free.toLocaleString()} free</span>
       </div>
-      <Progress value={percent} className="h-1.5" />
+      <div
+        role="progressbar"
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        className="h-1.5 w-full overflow-hidden rounded-full bg-secondary"
+      >
+        <div
+          className="h-full rounded-full bg-primary transition-all"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }
