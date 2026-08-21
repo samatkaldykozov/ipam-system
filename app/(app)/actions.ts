@@ -2,6 +2,10 @@
 
 import { prisma } from '@/lib/prisma';
 import { getNetworkCapacity } from '@/lib/cidr-utils';
+import {
+  buildGrowthSeries,
+  type GrowthPoint,
+} from '@/lib/dashboard-chart-utils';
 
 // Everything the dashboard needs in one round trip: headline counts, the
 // IP status breakdown, and the most recent audit log entries across the
@@ -120,4 +124,70 @@ export async function getDashboardAlerts(): Promise<DashboardAlert[]> {
   });
 
   return alerts;
+}
+
+export type DashboardCharts = {
+  networksByStatus: { label: string; value: number }[];
+  ipsByStatus: { label: string; value: number }[];
+  networkGrowth: GrowthPoint[];
+  ipGrowth: GrowthPoint[];
+};
+
+// How many trailing months the growth charts cover.
+const GROWTH_WINDOW_MONTHS = 12;
+
+// Status breakdowns (for the donut charts) and monthly cumulative growth
+// (for the line charts) — split out from getDashboardData() above since it
+// runs two extra findMany() queries (createdAt-only, so cheap) that the
+// rest of the dashboard doesn't need.
+export async function getDashboardCharts(): Promise<DashboardCharts> {
+  const [networkStatusCounts, ipStatusCounts, networkDates, ipDates] =
+    await Promise.all([
+      prisma.network.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.ipAddress.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.network.findMany({ select: { createdAt: true } }),
+      prisma.ipAddress.findMany({ select: { createdAt: true } }),
+    ]);
+
+  const networkStatusMap: Record<'ACTIVE' | 'RESERVED' | 'ARCHIVED', number> = {
+    ACTIVE: 0,
+    RESERVED: 0,
+    ARCHIVED: 0,
+  };
+  for (const row of networkStatusCounts) {
+    networkStatusMap[row.status] = row._count._all;
+  }
+
+  const ipStatusMap: Record<
+    'AVAILABLE' | 'ASSIGNED' | 'RESERVED' | 'BLOCKED',
+    number
+  > = { AVAILABLE: 0, ASSIGNED: 0, RESERVED: 0, BLOCKED: 0 };
+  for (const row of ipStatusCounts) {
+    ipStatusMap[row.status] = row._count._all;
+  }
+
+  // Explicit loops rather than `.map()` straight into `new Map()`/arrays —
+  // this sandbox's broken (network-less) `prisma generate` output has
+  // previously made TypeScript infer `{}` for `.map()` callback results in
+  // similar spots, even with explicit annotations. Plain loops sidestep it.
+  const networkCreatedAt: Date[] = [];
+  for (const row of networkDates) networkCreatedAt.push(row.createdAt);
+  const ipCreatedAt: Date[] = [];
+  for (const row of ipDates) ipCreatedAt.push(row.createdAt);
+
+  return {
+    networksByStatus: [
+      { label: 'Active', value: networkStatusMap.ACTIVE },
+      { label: 'Reserved', value: networkStatusMap.RESERVED },
+      { label: 'Archived', value: networkStatusMap.ARCHIVED },
+    ],
+    ipsByStatus: [
+      { label: 'Assigned', value: ipStatusMap.ASSIGNED },
+      { label: 'Available', value: ipStatusMap.AVAILABLE },
+      { label: 'Reserved', value: ipStatusMap.RESERVED },
+      { label: 'Blocked', value: ipStatusMap.BLOCKED },
+    ],
+    networkGrowth: buildGrowthSeries(networkCreatedAt, GROWTH_WINDOW_MONTHS),
+    ipGrowth: buildGrowthSeries(ipCreatedAt, GROWTH_WINDOW_MONTHS),
+  };
 }

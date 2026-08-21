@@ -30,20 +30,39 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { EmptyState } from '@/components/empty-state';
+import { DonutChart } from '@/components/donut-chart';
+import { GrowthChart } from '@/components/growth-chart';
 import { getCurrentUser, canEdit } from '@/lib/auth';
-import { getDashboardData, getDashboardAlerts } from '@/app/(app)/actions';
+import {
+  getDashboardData,
+  getDashboardAlerts,
+  getDashboardCharts,
+} from '@/app/(app)/actions';
 import { describeActivity } from '@/lib/audit-log-utils';
 
 export const dynamic = 'force-dynamic';
+
+// Fixed hsl(var(--chart-N)) tokens from globals.css — theme-aware (they
+// have separate light/dark values) without hardcoding hex colors here.
+const CHART_COLORS = {
+  chart1: 'hsl(var(--chart-1))',
+  chart2: 'hsl(var(--chart-2))',
+  chart3: 'hsl(var(--chart-3))',
+  chart4: 'hsl(var(--chart-4))',
+  destructive: 'hsl(var(--destructive))',
+  muted: 'hsl(var(--muted-foreground))',
+};
 
 export default async function DashboardPage() {
   const [
     { totalNetworks, totalIps, statusMap, recentActivity },
     alerts,
+    charts,
     currentUser,
   ] = await Promise.all([
     getDashboardData(),
     getDashboardAlerts(),
+    getDashboardCharts(),
     getCurrentUser(),
   ]);
 
@@ -203,6 +222,90 @@ export default async function DashboardPage() {
                 <Badge variant={row.variant}>{row.value}</Badge>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Status Breakdown</CardTitle>
+            <CardDescription>
+              Networks and IP addresses by current status.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-6 sm:flex-row sm:flex-wrap">
+            <DonutChart
+              centerLabel="networks"
+              segments={[
+                {
+                  label: 'Active',
+                  value: charts.networksByStatus[0].value,
+                  color: CHART_COLORS.chart2,
+                },
+                {
+                  label: 'Reserved',
+                  value: charts.networksByStatus[1].value,
+                  color: CHART_COLORS.chart4,
+                },
+                {
+                  label: 'Archived',
+                  value: charts.networksByStatus[2].value,
+                  color: CHART_COLORS.muted,
+                },
+              ]}
+            />
+            <DonutChart
+              centerLabel="IPs"
+              segments={[
+                {
+                  label: 'Assigned',
+                  value: charts.ipsByStatus[0].value,
+                  color: CHART_COLORS.chart1,
+                },
+                {
+                  label: 'Available',
+                  value: charts.ipsByStatus[1].value,
+                  color: CHART_COLORS.chart2,
+                },
+                {
+                  label: 'Reserved',
+                  value: charts.ipsByStatus[2].value,
+                  color: CHART_COLORS.chart4,
+                },
+                {
+                  label: 'Blocked',
+                  value: charts.ipsByStatus[3].value,
+                  color: CHART_COLORS.destructive,
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Inventory Growth</CardTitle>
+            <CardDescription>
+              Cumulative total over the last 12 months.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                Networks
+              </p>
+              <GrowthChart
+                data={charts.networkGrowth}
+                color={CHART_COLORS.chart1}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                IP Addresses
+              </p>
+              <GrowthChart data={charts.ipGrowth} color={CHART_COLORS.chart2} />
+            </div>
           </CardContent>
         </Card>
       </div>
