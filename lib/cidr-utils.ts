@@ -72,3 +72,18 @@ export function getNetworkCapacity(cidr: string): number | null {
   const total = Math.pow(2, 32 - prefixLength);
   return prefixLength >= 31 ? total : total - 2;
 }
+
+// Enumerates every usable host address in a CIDR block, in order (network
+// and broadcast addresses excluded for /0 through /30, matching
+// getNetworkCapacity's definition of "usable"). This materializes the full
+// address list in memory, so callers MUST check getNetworkCapacity() against
+// a sane cap before calling this — it is only meant for small blocks (the
+// subnet visualizer caps at 1024 addresses, i.e. /22 or smaller).
+export function getUsableAddresses(cidr: string): string[] | null {
+  const parsed = parseCidr(cidr);
+  if (parsed === null) return null;
+
+  const instance = new IPCIDR(cidr);
+  const all = instance.toArray();
+  return parsed.prefixLength >= 31 ? all : all.slice(1, -1);
+}

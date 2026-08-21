@@ -11,6 +11,7 @@ import {
   CornerDownRight,
   Download,
   Eye,
+  Grid3x3,
   List,
   MoreHorizontal,
   Network as NetworkIcon,
@@ -56,6 +57,7 @@ import { NetworkUtilization } from '@/app/(app)/networks/network-utilization';
 import { NetworkFormDialog } from '@/app/(app)/networks/network-form-dialog';
 import { DeleteNetworkDialog } from '@/app/(app)/networks/delete-network-dialog';
 import { NetworkDetailDialog } from '@/app/(app)/networks/network-detail-dialog';
+import { SubnetVisualizerDialog } from '@/app/(app)/networks/subnet-visualizer-dialog';
 import {
   exportNetworksCsv,
   importNetworksCsv,
@@ -111,6 +113,8 @@ export function NetworksTable({
   const [deleteTarget, setDeleteTarget] =
     React.useState<NetworkWithRelations | null>(null);
   const [detailTarget, setDetailTarget] =
+    React.useState<NetworkWithRelations | null>(null);
+  const [visualizeTarget, setVisualizeTarget] =
     React.useState<NetworkWithRelations | null>(null);
 
   const [view, setView] = React.useState<'tree' | 'list'>('tree');
@@ -256,6 +260,10 @@ export function NetworksTable({
           <DropdownMenuItem onClick={() => setDetailTarget(network)}>
             <Eye className="mr-2 h-4 w-4" />
             View details
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setVisualizeTarget(network)}>
+            <Grid3x3 className="mr-2 h-4 w-4" />
+            Visualize
           </DropdownMenuItem>
           {canEdit ? (
             <>
@@ -611,6 +619,13 @@ export function NetworksTable({
           if (!open) setDetailTarget(null);
         }}
         network={detailTarget}
+      />
+      <SubnetVisualizerDialog
+        open={!!visualizeTarget}
+        onOpenChange={(open) => {
+          if (!open) setVisualizeTarget(null);
+        }}
+        network={visualizeTarget}
       />
       <CsvImportDialog
         open={importOpen}
