@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { logAuthEvent } from '@/app/login/actions';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { GlobalSearch } from '@/components/global-search';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -48,10 +49,8 @@ export function Topbar({ email, role }: TopbarProps) {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex-1">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          IP Address Management
-        </h2>
+      <div className="flex flex-1 items-center">
+        <GlobalSearch />
       </div>
 
       <ThemeToggle />
