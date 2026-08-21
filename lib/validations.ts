@@ -93,9 +93,9 @@ export const locationSchema = z.object({
 
 export type LocationValues = z.infer<typeof locationSchema>;
 
-const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
+export const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
 
-const ipv4Regex =
+export const ipv4Regex =
   /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/;
 
 export const ipAddressSchema = z.object({

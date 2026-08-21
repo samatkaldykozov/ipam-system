@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CornerDownRight,
+  Download,
   Eye,
   List,
   MoreHorizontal,
@@ -17,7 +18,9 @@ import {
   Plus,
   Search,
   Trash2,
+  Upload,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -48,10 +51,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/empty-state';
+import { CsvImportDialog } from '@/components/csv-import-dialog';
 import { NetworkUtilization } from '@/app/(app)/networks/network-utilization';
 import { NetworkFormDialog } from '@/app/(app)/networks/network-form-dialog';
 import { DeleteNetworkDialog } from '@/app/(app)/networks/delete-network-dialog';
 import { NetworkDetailDialog } from '@/app/(app)/networks/network-detail-dialog';
+import {
+  exportNetworksCsv,
+  importNetworksCsv,
+} from '@/app/(app)/networks/csv-actions';
 import {
   STATUS_OPTIONS,
   statusBadgeVariant,
@@ -107,6 +115,29 @@ export function NetworksTable({
 
   const [view, setView] = React.useState<'tree' | 'list'>('tree');
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const csv = await exportNetworksCsv();
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `networks-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export networks');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const tree = React.useMemo(() => buildNetworkTree(treeItems), [treeItems]);
   const treeRows = React.useMemo(
@@ -305,6 +336,16 @@ export function NetworksTable({
               ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" onClick={handleExport} disabled={exporting}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+          {canEdit ? (
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+          ) : null}
           {canEdit ? (
             <Button
               onClick={() => {
@@ -570,6 +611,14 @@ export function NetworksTable({
           if (!open) setDetailTarget(null);
         }}
         network={detailTarget}
+      />
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import Networks"
+        description="Bulk-create or update networks from a CSV file."
+        columnsHint="cidr, name, description, vlanId, status, locationCode, parentCidr"
+        onImport={importNetworksCsv}
       />
     </div>
   );

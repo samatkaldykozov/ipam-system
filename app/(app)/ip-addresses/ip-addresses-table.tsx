@@ -8,6 +8,7 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  Download,
   Eye,
   MoreHorizontal,
   Pencil,
@@ -15,7 +16,9 @@ import {
   Search,
   Server,
   Trash2,
+  Upload,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,9 +47,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/empty-state';
+import { CsvImportDialog } from '@/components/csv-import-dialog';
 import { AssignIpDialog } from '@/app/(app)/ip-addresses/assign-ip-dialog';
 import { DeleteIpAddressDialog } from '@/app/(app)/ip-addresses/delete-ip-address-dialog';
 import { IpAddressDetailDialog } from '@/app/(app)/ip-addresses/ip-address-detail-dialog';
+import {
+  exportIpAddressesCsv,
+  importIpAddressesCsv,
+} from '@/app/(app)/ip-addresses/csv-actions';
 import {
   STATUS_OPTIONS,
   statusBadgeVariant,
@@ -98,6 +106,29 @@ export function IpAddressesTable({
     React.useState<IpAddressWithNetwork | null>(null);
   const [detailTarget, setDetailTarget] =
     React.useState<IpAddressWithNetwork | null>(null);
+
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const csv = await exportIpAddressesCsv();
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ip-addresses-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export IP addresses');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -232,6 +263,16 @@ export function IpAddressesTable({
               ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" onClick={handleExport} disabled={exporting}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+          {canEdit ? (
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+          ) : null}
           {canEdit ? (
             <Button
               onClick={() => {
@@ -421,6 +462,14 @@ export function IpAddressesTable({
           if (!open) setDetailTarget(null);
         }}
         ipAddress={detailTarget}
+      />
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import IP Addresses"
+        description="Bulk-create or update IP addresses from a CSV file."
+        columnsHint="address, hostname, macAddress, status, description, networkCidr"
+        onImport={importIpAddressesCsv}
       />
     </div>
   );
