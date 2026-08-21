@@ -62,6 +62,7 @@ interface IpAddressesTableProps {
   pageSize: number;
   totalPages: number;
   networks: NetworkOption[];
+  canEdit: boolean;
 }
 
 export function IpAddressesTable({
@@ -71,6 +72,7 @@ export function IpAddressesTable({
   pageSize,
   totalPages,
   networks,
+  canEdit,
 }: IpAddressesTableProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -230,15 +232,17 @@ export function IpAddressesTable({
               ))}
             </SelectContent>
           </Select>
-          <Button
-            onClick={() => {
-              setEditTarget(null);
-              setFormOpen(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Assign IP
-          </Button>
+          {canEdit ? (
+            <Button
+              onClick={() => {
+                setEditTarget(null);
+                setFormOpen(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Assign IP
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -315,23 +319,27 @@ export function IpAddressesTable({
                           <Eye className="mr-2 h-4 w-4" />
                           View details
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditTarget(ip);
-                            setFormOpen(true);
-                          }}
-                        >
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeleteTarget(ip)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
+                        {canEdit ? (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setEditTarget(ip);
+                                setFormOpen(true);
+                              }}
+                            >
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setDeleteTarget(ip)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -346,15 +354,17 @@ export function IpAddressesTable({
           title="No IP addresses found"
           description="Try adjusting your search or filters, or assign a new IP address."
           action={
-            <Button
-              onClick={() => {
-                setEditTarget(null);
-                setFormOpen(true);
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Assign IP
-            </Button>
+            canEdit ? (
+              <Button
+                onClick={() => {
+                  setEditTarget(null);
+                  setFormOpen(true);
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Assign IP
+              </Button>
+            ) : undefined
           }
         />
       )}

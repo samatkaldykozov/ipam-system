@@ -11,6 +11,7 @@ import {
   getLocations,
 } from '@/app/(app)/networks/actions';
 import type { SortField } from '@/app/(app)/networks/types';
+import { getCurrentUser, canEdit } from '@/lib/auth';
 
 const PAGE_SIZE = 10;
 
@@ -62,7 +63,7 @@ export default async function NetworksPage({
   const sortOrder = get('sortOrder') === 'asc' ? 'asc' : 'desc';
   const page = Math.max(1, parseInt(get('page') ?? '1', 10) || 1);
 
-  const [data, treeItems, locations] = await Promise.all([
+  const [data, treeItems, locations, currentUser] = await Promise.all([
     getNetworks({
       search,
       status,
@@ -73,7 +74,10 @@ export default async function NetworksPage({
     }),
     getNetworkTree(status),
     getLocations(),
+    getCurrentUser(),
   ]);
+
+  const userCanEdit = !!currentUser && canEdit(currentUser.role);
 
   return (
     <div className="space-y-6">
@@ -96,6 +100,7 @@ export default async function NetworksPage({
               pageSize={data.pageSize}
               totalPages={data.totalPages}
               locations={locations}
+              canEdit={userCanEdit}
             />
           </Suspense>
         </CardContent>

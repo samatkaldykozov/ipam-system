@@ -6,6 +6,7 @@ import { Prisma, NetworkStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { networkSchema, type NetworkValues } from '@/lib/validations';
 import { containsCidr, cidrsOverlap, getPrefixLength } from '@/lib/cidr-utils';
+import { getCurrentUser, canEdit } from '@/lib/auth';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -14,9 +15,15 @@ export type ActionResult<T = void> = {
   data?: T;
 };
 
+const PERMISSION_DENIED: ActionResult = {
+  ok: false,
+  message: 'You do not have permission to perform this action.',
+};
+
 async function writeAudit(
   action: 'CREATE' | 'UPDATE' | 'DELETE',
   entityId: string,
+  userId?: string,
   metadata?: Record<string, unknown>,
 ) {
   await prisma.auditLog.create({
@@ -24,6 +31,7 @@ async function writeAudit(
       action,
       entity: 'Network',
       entityId,
+      userId: userId ?? null,
       metadata: (metadata ?? undefined) as Prisma.InputJsonValue | undefined,
     },
   });
@@ -203,6 +211,11 @@ async function checkSiblingOverlap(
 export async function createNetwork(
   values: NetworkValues,
 ): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !canEdit(currentUser.role)) {
+    return PERMISSION_DENIED;
+  }
+
   const parsed = networkSchema.safeParse(values);
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -272,7 +285,7 @@ export async function createNetwork(
         parentId: parent?.id ?? null,
       },
     });
-    await writeAudit('CREATE', network.id, {
+    await writeAudit('CREATE', network.id, currentUser.id, {
       cidr: network.cidr,
       name: network.name,
       parentId: network.parentId,
@@ -288,6 +301,11 @@ export async function updateNetwork(
   id: string,
   values: NetworkValues,
 ): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !canEdit(currentUser.role)) {
+    return PERMISSION_DENIED;
+  }
+
   const parsed = networkSchema.safeParse(values);
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -364,7 +382,7 @@ export async function updateNetwork(
         parentId: parent?.id ?? null,
       },
     });
-    await writeAudit('UPDATE', network.id, {
+    await writeAudit('UPDATE', network.id, currentUser.id, {
       cidr: network.cidr,
       name: network.name,
       parentId: network.parentId,
@@ -377,6 +395,11 @@ export async function updateNetwork(
 }
 
 export async function deleteNetwork(id: string): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !canEdit(currentUser.role)) {
+    return PERMISSION_DENIED;
+  }
+
   try {
     const network = await prisma.network.findUnique({
       where: { id },
@@ -402,7 +425,10 @@ export async function deleteNetwork(id: string): Promise<ActionResult> {
     }
 
     await prisma.network.delete({ where: { id } });
-    await writeAudit('DELETE', id, { cidr: network.cidr, name: network.name });
+    await writeAudit('DELETE', id, currentUser.id, {
+      cidr: network.cidr,
+      name: network.name,
+    });
     revalidatePath('/networks');
     return { ok: true, message: 'Network deleted successfully' };
   } catch {

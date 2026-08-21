@@ -8,6 +8,7 @@ import {
   Network,
   Server,
   Settings,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -19,10 +20,16 @@ const iconMap: Record<string, LucideIcon> = {
   Network,
   Server,
   Settings,
+  Users,
 };
 
-export function Sidebar() {
+interface SidebarProps {
+  isAdmin: boolean;
+}
+
+export function Sidebar({ isAdmin }: SidebarProps) {
   const pathname = usePathname();
+  const nav = siteConfig.nav.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside className="hidden h-screen w-60 shrink-0 border-r bg-card md:flex md:flex-col">
@@ -36,7 +43,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {siteConfig.nav.map((item) => {
+        {nav.map((item) => {
           const Icon = iconMap[item.icon] ?? LayoutDashboard;
           const active =
             item.href === '/'

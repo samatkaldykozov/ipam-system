@@ -5,6 +5,7 @@ import { Prisma, IpStatus } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import { ipAddressSchema, type IpAddressValues } from '@/lib/validations';
+import { getCurrentUser, canEdit } from '@/lib/auth';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -13,9 +14,15 @@ export type ActionResult<T = void> = {
   data?: T;
 };
 
+const PERMISSION_DENIED: ActionResult = {
+  ok: false,
+  message: 'You do not have permission to perform this action.',
+};
+
 async function writeAudit(
   action: 'CREATE' | 'UPDATE' | 'DELETE',
   entityId: string,
+  userId?: string,
   metadata?: Record<string, unknown>,
 ) {
   await prisma.auditLog.create({
@@ -23,6 +30,7 @@ async function writeAudit(
       action,
       entity: 'IPAddress',
       entityId,
+      userId: userId ?? null,
       metadata: (metadata ?? undefined) as Prisma.InputJsonValue | undefined,
     },
   });
@@ -92,6 +100,11 @@ export async function getIpAddresses(params: {
 export async function createIpAddress(
   values: IpAddressValues,
 ): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !canEdit(currentUser.role)) {
+    return PERMISSION_DENIED;
+  }
+
   const parsed = ipAddressSchema.safeParse(values);
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -136,7 +149,7 @@ export async function createIpAddress(
       },
     });
 
-    await writeAudit('CREATE', ipAddress.id, {
+    await writeAudit('CREATE', ipAddress.id, currentUser.id, {
       address: ipAddress.address,
       networkId: ipAddress.networkId,
       status: ipAddress.status,
@@ -153,6 +166,11 @@ export async function updateIpAddress(
   id: string,
   values: IpAddressValues,
 ): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !canEdit(currentUser.role)) {
+    return PERMISSION_DENIED;
+  }
+
   const parsed = ipAddressSchema.safeParse(values);
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -212,7 +230,7 @@ export async function updateIpAddress(
       },
     });
 
-    await writeAudit('UPDATE', ipAddress.id, {
+    await writeAudit('UPDATE', ipAddress.id, currentUser.id, {
       address: ipAddress.address,
       networkId: ipAddress.networkId,
       status: ipAddress.status,
@@ -226,6 +244,11 @@ export async function updateIpAddress(
 }
 
 export async function deleteIpAddress(id: string): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !canEdit(currentUser.role)) {
+    return PERMISSION_DENIED;
+  }
+
   try {
     const ipAddress = await prisma.ipAddress.findUnique({ where: { id } });
     if (!ipAddress) {
@@ -233,7 +256,7 @@ export async function deleteIpAddress(id: string): Promise<ActionResult> {
     }
 
     await prisma.ipAddress.delete({ where: { id } });
-    await writeAudit('DELETE', id, {
+    await writeAudit('DELETE', id, currentUser.id, {
       address: ipAddress.address,
       networkId: ipAddress.networkId,
     });

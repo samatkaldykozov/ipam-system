@@ -10,6 +10,7 @@ import {
   getNetworkOptions,
 } from '@/app/(app)/ip-addresses/actions';
 import type { SortField } from '@/app/(app)/ip-addresses/types';
+import { getCurrentUser, canEdit } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +65,7 @@ export default async function IpAddressesPage({
   const sortOrder = get('sortOrder') === 'asc' ? 'asc' : 'desc';
   const page = Math.max(1, parseInt(get('page') ?? '1', 10) || 1);
 
-  const [data, networks] = await Promise.all([
+  const [data, networks, currentUser] = await Promise.all([
     getIpAddresses({
       search,
       status,
@@ -75,7 +76,10 @@ export default async function IpAddressesPage({
       pageSize: PAGE_SIZE,
     }),
     getNetworkOptions(),
+    getCurrentUser(),
   ]);
+
+  const userCanEdit = !!currentUser && canEdit(currentUser.role);
 
   return (
     <div className="space-y-6">
@@ -97,6 +101,7 @@ export default async function IpAddressesPage({
               pageSize={data.pageSize}
               totalPages={data.totalPages}
               networks={networks}
+              canEdit={userCanEdit}
             />
           </Suspense>
         </CardContent>

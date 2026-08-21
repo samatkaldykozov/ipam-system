@@ -21,9 +21,10 @@ import {
 
 interface TopbarProps {
   email: string | null;
+  role: string | null;
 }
 
-export function Topbar({ email }: TopbarProps) {
+export function Topbar({ email, role }: TopbarProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = React.useState(false);
 
@@ -65,8 +66,13 @@ export function Topbar({ email }: TopbarProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel className="truncate">
-            {email ?? 'Account'}
+          <DropdownMenuLabel className="flex flex-col gap-0.5 truncate">
+            <span className="truncate">{email ?? 'Account'}</span>
+            {role ? (
+              <span className="text-xs font-normal text-muted-foreground">
+                {role}
+              </span>
+            ) : null}
           </DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link href="/settings" className="flex items-center gap-2">

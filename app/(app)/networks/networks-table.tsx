@@ -69,6 +69,7 @@ interface NetworksTableProps {
   pageSize: number;
   totalPages: number;
   locations: LocationOption[];
+  canEdit: boolean;
 }
 
 export function NetworksTable({
@@ -79,6 +80,7 @@ export function NetworksTable({
   pageSize,
   totalPages,
   locations,
+  canEdit,
 }: NetworksTableProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -223,23 +225,27 @@ export function NetworksTable({
             <Eye className="mr-2 h-4 w-4" />
             View details
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setEditTarget(network);
-              setFormOpen(true);
-            }}
-          >
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => setDeleteTarget(network)}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
-          </DropdownMenuItem>
+          {canEdit ? (
+            <>
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditTarget(network);
+                  setFormOpen(true);
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDeleteTarget(network)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -298,15 +304,17 @@ export function NetworksTable({
               ))}
             </SelectContent>
           </Select>
-          <Button
-            onClick={() => {
-              setEditTarget(null);
-              setFormOpen(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New Network
-          </Button>
+          {canEdit ? (
+            <Button
+              onClick={() => {
+                setEditTarget(null);
+                setFormOpen(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Network
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -479,15 +487,17 @@ export function NetworksTable({
           title="No networks found"
           description="Try adjusting your search or filters, or create a new network."
           action={
-            <Button
-              onClick={() => {
-                setEditTarget(null);
-                setFormOpen(true);
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              New Network
-            </Button>
+            canEdit ? (
+              <Button
+                onClick={() => {
+                  setEditTarget(null);
+                  setFormOpen(true);
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Network
+              </Button>
+            ) : undefined
           }
         />
       )}
