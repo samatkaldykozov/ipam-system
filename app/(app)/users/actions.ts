@@ -15,10 +15,15 @@ export type ActionResult<T = void> = {
   data?: T;
 };
 
-const PERMISSION_DENIED: ActionResult = {
-  ok: false,
-  message: 'You do not have permission to perform this action.',
-};
+// A function (not a shared constant) so it type-checks against whichever
+// ActionResult<T> the caller declares, including the generic inviteUser
+// result below.
+function permissionDenied<T = void>(): ActionResult<T> {
+  return {
+    ok: false,
+    message: 'You do not have permission to perform this action.',
+  };
+}
 
 async function writeAudit(
   action: 'CREATE' | 'UPDATE',
@@ -58,7 +63,7 @@ export async function updateUserRole(
 ): Promise<ActionResult> {
   const currentUser = await getCurrentUser();
   if (!currentUser || !isAdmin(currentUser.role)) {
-    return PERMISSION_DENIED;
+    return permissionDenied();
   }
 
   // Changing your own role could lock you out of the admin area with no
@@ -92,16 +97,24 @@ export async function updateUserRole(
   }
 }
 
-// Invites a new teammate by email (Admin-only). Creates the Supabase Auth
-// user and emails them an invite link; the existing DB trigger mirrors that
-// auth user into public.users automatically, and this then assigns the
-// role the admin picked so the account isn't left with no role at all.
+// Falls back to the known production URL if the env var isn't set, so
+// invites still work without extra Vercel configuration.
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ipam-system-delta.vercel.app';
+
+// Invites a new teammate by email (Admin-only). Rather than asking Supabase
+// to send the invite email itself (blocked in the dashboard until a custom
+// SMTP provider is configured), this generates the invite link directly and
+// hands it back to the admin to send however they like. The existing DB
+// trigger mirrors the new auth user into public.users automatically, and
+// this then assigns the role the admin picked so the account isn't left
+// with no role at all.
 export async function inviteUser(
   values: InviteUserValues,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ inviteLink: string }>> {
   const currentUser = await getCurrentUser();
   if (!currentUser || !isAdmin(currentUser.role)) {
-    return PERMISSION_DENIED;
+    return permissionDenied();
   }
 
   const parsed = inviteUserSchema.safeParse(values);
@@ -134,13 +147,24 @@ export async function inviteUser(
     };
   }
 
-  const { data, error } = await admin.auth.admin.inviteUserByEmail(email);
-  if (error || !data.user) {
-    return { ok: false, message: error?.message ?? 'Failed to send invite' };
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'invite',
+    email,
+    options: { redirectTo: `${SITE_URL}/set-password` },
+  });
+  if (error || !data.user || !data.properties?.hashed_token) {
+    return {
+      ok: false,
+      message: error?.message ?? 'Failed to generate invite link',
+    };
   }
 
+  const inviteLink = `${SITE_URL}/auth/confirm?token_hash=${encodeURIComponent(
+    data.properties.hashed_token,
+  )}&type=invite&next=/set-password`;
+
   // The trigger that mirrors auth.users -> public.users runs on insert and
-  // should have already landed by the time inviteUserByEmail resolves, but
+  // should have already landed by the time generateLink resolves, but
   // guard with a try/catch anyway: if it hasn't yet, the admin can still set
   // the role from the table once the row appears rather than the whole
   // invite failing outright.
@@ -158,5 +182,9 @@ export async function inviteUser(
     invitedRole: role.name,
   });
   revalidatePath('/users');
-  return { ok: true, message: `Invite sent to ${email}` };
+  return {
+    ok: true,
+    message: `Invite link created for ${email}`,
+    data: { inviteLink },
+  };
 }
