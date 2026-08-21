@@ -15,6 +15,12 @@ export const siteConfig = {
       icon: 'Server',
       adminOnly: false,
     },
+    {
+      title: 'Locations',
+      href: '/locations',
+      icon: 'MapPin',
+      adminOnly: false,
+    },
     { title: 'Users', href: '/users', icon: 'Users', adminOnly: true },
     {
       title: 'Settings',

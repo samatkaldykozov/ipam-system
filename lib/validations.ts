@@ -54,6 +54,45 @@ export const networkSchema = z.object({
 
 export type NetworkValues = z.infer<typeof networkSchema>;
 
+const latitudeSchema = z
+  .union([
+    z.coerce
+      .number()
+      .min(-90, 'Must be between -90 and 90')
+      .max(90, 'Must be between -90 and 90'),
+    z.literal(''),
+  ])
+  .optional()
+  .transform((v) => (v === '' || v === undefined ? undefined : Number(v)));
+
+const longitudeSchema = z
+  .union([
+    z.coerce
+      .number()
+      .min(-180, 'Must be between -180 and 180')
+      .max(180, 'Must be between -180 and 180'),
+    z.literal(''),
+  ])
+  .optional()
+  .transform((v) => (v === '' || v === undefined ? undefined : Number(v)));
+
+export const locationSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(120, 'Name is too long'),
+  code: z
+    .string()
+    .min(1, 'Code is required')
+    .max(20, 'Code is too long')
+    .regex(/^[A-Za-z0-9-]+$/, 'Use letters, numbers, and hyphens only'),
+  address: z.string().max(255, 'Address is too long').optional(),
+  city: z.string().max(120, 'City is too long').optional(),
+  country: z.string().max(120, 'Country is too long').optional(),
+  latitude: latitudeSchema,
+  longitude: longitudeSchema,
+  description: z.string().max(500, 'Description is too long').optional(),
+});
+
+export type LocationValues = z.infer<typeof locationSchema>;
+
 const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
 
 const ipv4Regex =

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
+  MapPin,
   Network,
   Server,
   Settings,
@@ -17,6 +18,7 @@ import { siteConfig } from '@/lib/site-config';
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
+  MapPin,
   Network,
   Server,
   Settings,
