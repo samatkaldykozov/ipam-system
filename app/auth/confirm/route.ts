@@ -1,6 +1,5 @@
 import { type EmailOtpType } from '@supabase/supabase-js';
-import { type NextRequest } from 'next/server';
-import { redirect } from 'next/navigation';
+import { NextResponse, type NextRequest } from 'next/server';
 
 import { createClient } from '@/lib/supabase/server';
 
@@ -8,8 +7,12 @@ import { createClient } from '@/lib/supabase/server';
 // The Supabase email templates must point here with `token_hash` and
 // `type` query params — see the README for the exact template to paste in
 // under Authentication -> Email Templates in the Supabase dashboard.
+//
+// Route Handlers must return a Response directly (unlike Server Components,
+// where `redirect()` from next/navigation can throw to short-circuit
+// rendering) — so this builds NextResponse.redirect() explicitly.
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams, origin } = new URL(request.url);
   const tokenHash = searchParams.get('token_hash');
   const type = searchParams.get('type') as EmailOtpType | null;
   const next = searchParams.get('next') ?? '/';
@@ -21,9 +24,11 @@ export async function GET(request: NextRequest) {
       token_hash: tokenHash,
     });
     if (!error) {
-      redirect(next);
+      return NextResponse.redirect(new URL(next, origin));
     }
   }
 
-  redirect('/login?error=invite-link-invalid');
+  return NextResponse.redirect(
+    new URL('/login?error=invite-link-invalid', origin),
+  );
 }
