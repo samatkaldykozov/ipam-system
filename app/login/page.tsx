@@ -1,12 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Network } from 'lucide-react';
 
 import { loginSchema, type LoginValues } from '@/lib/validations';
+import { createClient } from '@/lib/supabase/client';
+import { logAuthEvent } from '@/app/login/actions';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -20,7 +22,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [submitting, setSubmitting] = React.useState(false);
+  const [formError, setFormError] = React.useState<string | null>(null);
 
   const {
     register,
@@ -31,10 +35,30 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '' },
   });
 
-  const onSubmit = (_values: LoginValues) => {
+  const onSubmit = async (values: LoginValues) => {
     setSubmitting(true);
-    // Authentication wiring will be added with business logic.
-    setTimeout(() => setSubmitting(false), 600);
+    setFormError(null);
+
+    const supabase = createClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: values.email,
+      password: values.password,
+    });
+
+    if (error || !data.user) {
+      setSubmitting(false);
+      setFormError(
+        error?.message === 'Invalid login credentials'
+          ? 'Incorrect email or password.'
+          : (error?.message ?? 'Sign in failed. Please try again.'),
+      );
+      return;
+    }
+
+    await logAuthEvent('LOGIN', data.user.id);
+
+    router.push('/');
+    router.refresh();
   };
 
   return (
@@ -55,10 +79,17 @@ export default function LoginPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Welcome back</CardTitle>
-            <CardDescription>Enter your credentials to continue.</CardDescription>
+            <CardDescription>
+              Enter your credentials to continue.
+            </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit(onSubmit)}>
             <CardContent className="space-y-4">
+              {formError ? (
+                <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {formError}
+                </p>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -75,15 +106,7 @@ export default function LoginPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password</Label>
-                  <Link
-                    href="#"
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
+                <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
                   type="password"
@@ -103,13 +126,8 @@ export default function LoginPage() {
                 {submitting ? 'Signing in…' : 'Sign in'}
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Don&apos;t have an account?{' '}
-                <Link
-                  href="#"
-                  className="font-medium text-foreground hover:underline"
-                >
-                  Sign up
-                </Link>
+                Access is by invitation only. Contact your administrator if you
+                need an account.
               </p>
             </CardFooter>
           </form>
