@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cidrsOverlap,
   containsCidr,
+  findFirstFreeAddress,
   getNetworkCapacity,
   getPrefixLength,
   getUsableAddresses,
@@ -117,5 +118,51 @@ describe('getUsableAddresses', () => {
 
   it('returns null for invalid CIDR', () => {
     expect(getUsableAddresses('garbage')).toBeNull();
+  });
+});
+
+describe('findFirstFreeAddress', () => {
+  it('returns the first usable address when nothing is used', () => {
+    expect(findFirstFreeAddress('10.0.0.0/24', new Set())).toBe('10.0.0.1');
+  });
+
+  it('skips addresses already in the used set', () => {
+    const used = new Set(['10.0.0.1', '10.0.0.2', '10.0.0.3']);
+    expect(findFirstFreeAddress('10.0.0.0/24', used)).toBe('10.0.0.4');
+  });
+
+  it('never returns the network or broadcast address, even when both are free', () => {
+    // Every usable address in this /30 is taken; only network (.0) and
+    // broadcast (.3) are free, and neither should ever be suggested — the
+    // block should read as full instead.
+    const used = new Set(['10.0.0.1', '10.0.0.2']);
+    expect(findFirstFreeAddress('10.0.0.0/30', used)).toBeNull();
+  });
+
+  it('includes both addresses for a /31 (no network/broadcast reserved)', () => {
+    expect(findFirstFreeAddress('10.0.0.0/31', new Set())).toBe('10.0.0.0');
+    expect(findFirstFreeAddress('10.0.0.0/31', new Set(['10.0.0.0']))).toBe(
+      '10.0.0.1',
+    );
+  });
+
+  it('handles a /32 as a single usable address', () => {
+    expect(findFirstFreeAddress('10.0.0.5/32', new Set())).toBe('10.0.0.5');
+    expect(
+      findFirstFreeAddress('10.0.0.5/32', new Set(['10.0.0.5'])),
+    ).toBeNull();
+  });
+
+  it('returns null for invalid CIDR', () => {
+    expect(findFirstFreeAddress('garbage', new Set())).toBeNull();
+  });
+
+  it('correctly walks addresses across an octet boundary', () => {
+    // 10.0.0.0/23 usable range is 10.0.0.1 .. 10.0.1.254; fill up to and
+    // including the end of the first octet to confirm the integer
+    // arithmetic carries over correctly.
+    const used = new Set<string>();
+    for (let i = 1; i <= 255; i++) used.add(`10.0.0.${i}`);
+    expect(findFirstFreeAddress('10.0.0.0/23', used)).toBe('10.0.1.0');
   });
 });

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ipAddressSchema, type IpAddressValues } from '@/lib/validations';
@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/select';
 import {
   createIpAddress,
+  getNextAvailableAddress,
   updateIpAddress,
 } from '@/app/(app)/ip-addresses/actions';
 import {
@@ -68,11 +69,30 @@ export function AssignIpDialog({
 }: AssignIpDialogProps) {
   const isEdit = !!ipAddress;
   const [submitting, setSubmitting] = React.useState(false);
+  const [suggesting, setSuggesting] = React.useState(false);
 
   const form = useForm<IpAddressValues>({
     resolver: zodResolver(ipAddressSchema),
     defaultValues: EMPTY,
   });
+
+  const selectedNetworkId = form.watch('networkId');
+
+  async function handleSuggestAddress() {
+    if (!selectedNetworkId) return;
+    setSuggesting(true);
+    const result = await getNextAvailableAddress(selectedNetworkId);
+    setSuggesting(false);
+
+    if (result.address) {
+      form.setValue('address', result.address, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    } else {
+      toast.error(result.message ?? 'No free address found.');
+    }
+  }
 
   React.useEffect(() => {
     if (open) {
@@ -160,7 +180,29 @@ export function AssignIpDialog({
               name="address"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>IP Address</FormLabel>
+                  <div className="flex items-center justify-between">
+                    <FormLabel>IP Address</FormLabel>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      disabled={!selectedNetworkId || suggesting}
+                      onClick={handleSuggestAddress}
+                    >
+                      {suggesting ? (
+                        <>
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          Finding…
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="mr-1 h-3 w-3" />
+                          Use next available
+                        </>
+                      )}
+                    </Button>
+                  </div>
                   <FormControl>
                     <Input placeholder="10.0.0.5" {...field} />
                   </FormControl>

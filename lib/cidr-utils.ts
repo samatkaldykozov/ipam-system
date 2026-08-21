@@ -87,3 +87,49 @@ export function getUsableAddresses(cidr: string): string[] | null {
   const all = instance.toArray();
   return parsed.prefixLength >= 31 ? all : all.slice(1, -1);
 }
+
+// IPv4 dotted-quad <-> unsigned 32-bit integer. `>>> 0` forces the bitwise
+// result back to an unsigned value (plain `<<`/`|` in JS operate on signed
+// 32-bit ints, so e.g. 192.x.x.x addresses would otherwise come out negative).
+function ipToInt(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  return (
+    ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
+  );
+}
+
+function intToIp(int: number): string {
+  return [
+    (int >>> 24) & 255,
+    (int >>> 16) & 255,
+    (int >>> 8) & 255,
+    int & 255,
+  ].join('.');
+}
+
+// Finds the first usable address in a CIDR block that isn't in
+// `usedAddresses`, walking the range in order via integer arithmetic rather
+// than materializing the full address list (unlike getUsableAddresses, this
+// is safe to call on much larger blocks — the caller is expected to still
+// apply a sane cap before scanning, since even integer arithmetic isn't free
+// over e.g. a /8). Network/broadcast addresses are skipped for /0 through
+// /30, matching getNetworkCapacity's and getUsableAddresses' definition of
+// "usable". Returns null for an invalid CIDR or when the block is full.
+export function findFirstFreeAddress(
+  cidr: string,
+  usedAddresses: Set<string>,
+): string | null {
+  const parsed = parseCidr(cidr);
+  if (parsed === null) return null;
+
+  const startInt = ipToInt(parsed.start);
+  const endInt = ipToInt(parsed.end);
+  const firstUsable = parsed.prefixLength >= 31 ? startInt : startInt + 1;
+  const lastUsable = parsed.prefixLength >= 31 ? endInt : endInt - 1;
+
+  for (let i = firstUsable; i <= lastUsable; i++) {
+    const candidate = intToIp(i);
+    if (!usedAddresses.has(candidate)) return candidate;
+  }
+  return null;
+}

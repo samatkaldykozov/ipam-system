@@ -6,7 +6,16 @@ import { Prisma, IpStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ipAddressSchema, type IpAddressValues } from '@/lib/validations';
 import { getCurrentUser, canEdit } from '@/lib/auth';
-import { containsCidr } from '@/lib/cidr-utils';
+import {
+  containsCidr,
+  findFirstFreeAddress,
+  getNetworkCapacity,
+} from '@/lib/cidr-utils';
+
+// Blocks larger than this aren't scanned for a free address — walking a
+// full /16 (or bigger) on every dialog open isn't worth it, and the user can
+// still enter an address manually.
+const MAX_SUGGESTION_SCAN_CAPACITY = 65536;
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -42,6 +51,55 @@ export async function getNetworkOptions() {
     orderBy: { name: 'asc' },
     select: { id: true, name: true, cidr: true },
   });
+}
+
+// Suggests the first free usable address in a network, for the "Use next
+// available" affordance in the assign dialog. Read-only — no permission
+// gate, same as getNetworkOptions above.
+export async function getNextAvailableAddress(
+  networkId: string,
+): Promise<{ address: string | null; message?: string }> {
+  if (!networkId) {
+    return { address: null, message: 'Select a network first.' };
+  }
+
+  const network = await prisma.network.findUnique({
+    where: { id: networkId },
+  });
+  if (!network) {
+    return { address: null, message: 'Selected network does not exist.' };
+  }
+
+  const capacity = getNetworkCapacity(network.cidr);
+  if (capacity === null) {
+    return { address: null, message: 'This network has an invalid CIDR.' };
+  }
+  if (capacity > MAX_SUGGESTION_SCAN_CAPACITY) {
+    return {
+      address: null,
+      message:
+        'This network is too large to auto-suggest an address for — please enter one manually.',
+    };
+  }
+
+  const existing = await prisma.ipAddress.findMany({
+    where: { networkId },
+    select: { address: true },
+  });
+  const usedAddresses = new Set<string>();
+  for (const { address } of existing) {
+    usedAddresses.add(address);
+  }
+
+  const address = findFirstFreeAddress(network.cidr, usedAddresses);
+  if (!address) {
+    return {
+      address: null,
+      message: 'No free addresses remain in this network.',
+    };
+  }
+
+  return { address };
 }
 
 export async function getIpAddresses(params: {
