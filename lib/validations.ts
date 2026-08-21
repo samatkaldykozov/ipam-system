@@ -7,6 +7,25 @@ export const loginSchema = z.object({
 
 export type LoginValues = z.infer<typeof loginSchema>;
 
+export const inviteUserSchema = z.object({
+  email: z.string().email('Enter a valid email address'),
+  roleId: z.string().min(1, 'Select a role'),
+});
+
+export type InviteUserValues = z.infer<typeof inviteUserSchema>;
+
+export const setPasswordSchema = z
+  .object({
+    password: z.string().min(8, 'Password must be at least 8 characters'),
+    confirmPassword: z.string().min(8, 'Please confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+export type SetPasswordValues = z.infer<typeof setPasswordSchema>;
+
 const cidrRegex =
   /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\/(3[0-2]|[12]?\d)$/;
 

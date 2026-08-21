@@ -1,14 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Network } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 
-import { loginSchema, type LoginValues } from '@/lib/validations';
+import { setPasswordSchema, type SetPasswordValues } from '@/lib/validations';
 import { createClient } from '@/lib/supabase/client';
-import { logAuthEvent } from '@/app/login/actions';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -21,54 +20,37 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-export default function LoginPage() {
-  return (
-    <React.Suspense fallback={null}>
-      <LoginForm />
-    </React.Suspense>
-  );
-}
-
-function LoginForm() {
+// Reached after a user follows an invite (or password-reset) link, which
+// signs them in with a temporary Supabase session. They land here to pick
+// their own password before using the app.
+export default function SetPasswordPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [submitting, setSubmitting] = React.useState(false);
-  const [formError, setFormError] = React.useState<string | null>(
-    searchParams.get('error') === 'invite-link-invalid'
-      ? 'This invite link is invalid or has expired. Ask an admin to send a new one.'
-      : null,
-  );
+  const [formError, setFormError] = React.useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' },
+  } = useForm<SetPasswordValues>({
+    resolver: zodResolver(setPasswordSchema),
+    defaultValues: { password: '', confirmPassword: '' },
   });
 
-  const onSubmit = async (values: LoginValues) => {
+  const onSubmit = async (values: SetPasswordValues) => {
     setSubmitting(true);
     setFormError(null);
 
     const supabase = createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: values.email,
+    const { error } = await supabase.auth.updateUser({
       password: values.password,
     });
 
-    if (error || !data.user) {
+    if (error) {
       setSubmitting(false);
-      setFormError(
-        error?.message === 'Invalid login credentials'
-          ? 'Incorrect email or password.'
-          : (error?.message ?? 'Sign in failed. Please try again.'),
-      );
+      setFormError(error.message ?? 'Could not set your password.');
       return;
     }
-
-    await logAuthEvent('LOGIN', data.user.id);
 
     router.push('/');
     router.refresh();
@@ -79,21 +61,23 @@ function LoginForm() {
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Network className="h-6 w-6" />
+            <KeyRound className="h-6 w-6" />
           </div>
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">IPAM</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Set your password
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Sign in to IP Address Management
+              Choose a password to finish setting up your account.
             </p>
           </div>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Welcome back</CardTitle>
+            <CardTitle className="text-lg">Welcome to IPAM</CardTitle>
             <CardDescription>
-              Enter your credentials to continue.
+              This is the last step before you can sign in.
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit(onSubmit)}>
@@ -104,27 +88,12 @@ function LoginForm() {
                 </p>
               ) : null}
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  {...register('email')}
-                />
-                {errors.email ? (
-                  <p className="text-xs text-destructive">
-                    {errors.email.message}
-                  </p>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">New password</Label>
                 <Input
                   id="password"
                   type="password"
                   placeholder="••••••••"
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                   {...register('password')}
                 />
                 {errors.password ? (
@@ -133,15 +102,26 @@ function LoginForm() {
                   </p>
                 ) : null}
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  {...register('confirmPassword')}
+                />
+                {errors.confirmPassword ? (
+                  <p className="text-xs text-destructive">
+                    {errors.confirmPassword.message}
+                  </p>
+                ) : null}
+              </div>
             </CardContent>
-            <CardFooter className="flex flex-col gap-3">
+            <CardFooter>
               <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? 'Signing in…' : 'Sign in'}
+                {submitting ? 'Saving…' : 'Save password and continue'}
               </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Access is by invitation only. Contact your administrator if you
-                need an account.
-              </p>
             </CardFooter>
           </form>
         </Card>
