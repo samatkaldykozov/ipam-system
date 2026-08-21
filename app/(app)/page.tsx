@@ -33,11 +33,7 @@ import { EmptyState } from '@/components/empty-state';
 import { DonutChart } from '@/components/donut-chart';
 import { GrowthChart } from '@/components/growth-chart';
 import { getCurrentUser, canEdit } from '@/lib/auth';
-import {
-  getDashboardData,
-  getDashboardAlerts,
-  getDashboardCharts,
-} from '@/app/(app)/actions';
+import { getDashboardData } from '@/app/(app)/actions';
 import { describeActivity } from '@/lib/audit-log-utils';
 
 export const dynamic = 'force-dynamic';
@@ -55,16 +51,19 @@ const CHART_COLORS = {
 
 export default async function DashboardPage() {
   const [
-    { totalNetworks, totalIps, statusMap, recentActivity },
-    alerts,
-    charts,
+    {
+      totalNetworks,
+      totalIps,
+      statusMap,
+      recentActivity,
+      alerts,
+      networksByStatus,
+      ipsByStatus,
+      networkGrowth,
+      ipGrowth,
+    },
     currentUser,
-  ] = await Promise.all([
-    getDashboardData(),
-    getDashboardAlerts(),
-    getDashboardCharts(),
-    getCurrentUser(),
-  ]);
+  ] = await Promise.all([getDashboardData(), getCurrentUser()]);
 
   const userCanEdit = !!currentUser && canEdit(currentUser.role);
 
@@ -240,17 +239,17 @@ export default async function DashboardPage() {
               segments={[
                 {
                   label: 'Active',
-                  value: charts.networksByStatus[0].value,
+                  value: networksByStatus[0].value,
                   color: CHART_COLORS.chart2,
                 },
                 {
                   label: 'Reserved',
-                  value: charts.networksByStatus[1].value,
+                  value: networksByStatus[1].value,
                   color: CHART_COLORS.chart4,
                 },
                 {
                   label: 'Archived',
-                  value: charts.networksByStatus[2].value,
+                  value: networksByStatus[2].value,
                   color: CHART_COLORS.muted,
                 },
               ]}
@@ -260,22 +259,22 @@ export default async function DashboardPage() {
               segments={[
                 {
                   label: 'Assigned',
-                  value: charts.ipsByStatus[0].value,
+                  value: ipsByStatus[0].value,
                   color: CHART_COLORS.chart1,
                 },
                 {
                   label: 'Available',
-                  value: charts.ipsByStatus[1].value,
+                  value: ipsByStatus[1].value,
                   color: CHART_COLORS.chart2,
                 },
                 {
                   label: 'Reserved',
-                  value: charts.ipsByStatus[2].value,
+                  value: ipsByStatus[2].value,
                   color: CHART_COLORS.chart4,
                 },
                 {
                   label: 'Blocked',
-                  value: charts.ipsByStatus[3].value,
+                  value: ipsByStatus[3].value,
                   color: CHART_COLORS.destructive,
                 },
               ]}
@@ -295,16 +294,13 @@ export default async function DashboardPage() {
               <p className="mb-1 text-xs font-medium text-muted-foreground">
                 Networks
               </p>
-              <GrowthChart
-                data={charts.networkGrowth}
-                color={CHART_COLORS.chart1}
-              />
+              <GrowthChart data={networkGrowth} color={CHART_COLORS.chart1} />
             </div>
             <div>
               <p className="mb-1 text-xs font-medium text-muted-foreground">
                 IP Addresses
               </p>
-              <GrowthChart data={charts.ipGrowth} color={CHART_COLORS.chart2} />
+              <GrowthChart data={ipGrowth} color={CHART_COLORS.chart2} />
             </div>
           </CardContent>
         </Card>

@@ -1,3 +1,5 @@
+import { cache } from 'react';
+
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 
@@ -18,7 +20,16 @@ export type CurrentUser = {
 // role. A user with no role assigned yet (role_id is null — e.g. an account
 // an Admin just created but hasn't gotten to yet) defaults to Viewer: the
 // safe, read-only default rather than accidentally granting edit access.
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+//
+// Wrapped in React's `cache()` so multiple calls within the same request
+// (every page currently calls this once in its own page.tsx, on top of the
+// call layout.tsx already makes) share one result instead of hitting
+// Supabase Auth and the `users` table twice. This matters more than it
+// might elsewhere: lib/prisma.ts pins `connection_limit=1` for Supabase's
+// PgBouncer pooler, so every extra query is one more request serialized
+// through a single connection — see the comment on getDashboardData() in
+// app/(app)/actions.ts for what happens when that budget is blown.
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -43,7 +54,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     fullName: profile?.fullName ?? null,
     role,
   };
-}
+});
 
 export function canEdit(role: Role): boolean {
   return role === 'Admin' || role === 'Network Engineer';
