@@ -1,4 +1,7 @@
-import { Network, Server, Activity, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
+import { formatDistanceToNow } from 'date-fns';
+import { Activity, Network, Plus, Server, ShieldCheck } from 'lucide-react';
+import type { AuditAction } from '@prisma/client';
 
 import { PageHeader } from '@/components/page-header';
 import {
@@ -8,8 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -18,27 +21,109 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { EmptyState } from '@/components/empty-state';
+import { getCurrentUser, canEdit } from '@/lib/auth';
+import { getDashboardData } from '@/app/(app)/actions';
 
-const stats = [
-  { label: 'Total Networks', value: '—', icon: Network },
-  { label: 'Allocated IPs', value: '—', icon: Server },
-  { label: 'Available IPs', value: '—', icon: Activity },
-  { label: 'Conflicts', value: '—', icon: AlertTriangle },
-];
+export const dynamic = 'force-dynamic';
 
-const recentActivity = [
-  { id: '1', event: 'Project scaffold created', time: 'just now' },
-];
+type ActivityRow = {
+  id: string;
+  action: AuditAction;
+  entity: string;
+  createdAt: Date;
+  metadata: unknown;
+  user: { email: string } | null;
+};
 
-export default function DashboardPage() {
+function describeActivity(log: ActivityRow): string {
+  const meta = (log.metadata ?? {}) as Record<string, unknown>;
+  const str = (key: string) =>
+    typeof meta[key] === 'string' ? (meta[key] as string) : '';
+  const actor = log.user?.email ?? 'Someone';
+
+  if (log.entity === 'Auth') {
+    return log.action === 'LOGIN'
+      ? `${actor} signed in`
+      : `${actor} signed out`;
+  }
+
+  if (log.entity === 'Network') {
+    const label = [str('cidr'), str('name')].filter(Boolean).join(' — ');
+    if (log.action === 'CREATE') return `${actor} created network ${label}`;
+    if (log.action === 'UPDATE') return `${actor} updated network ${label}`;
+    if (log.action === 'DELETE') return `${actor} deleted network ${label}`;
+  }
+
+  if (log.entity === 'IpAddress') {
+    const address = str('address');
+    if (log.action === 'CREATE') return `${actor} assigned ${address}`;
+    if (log.action === 'UPDATE') return `${actor} updated ${address}`;
+    if (log.action === 'DELETE') return `${actor} removed ${address}`;
+  }
+
+  if (log.entity === 'User') {
+    const email = str('email');
+    const role = str('newRole') || str('invitedRole');
+    if (log.action === 'CREATE')
+      return `${actor} invited ${email}${role ? ` as ${role}` : ''}`;
+    if (log.action === 'UPDATE')
+      return `${actor} set ${email}'s role to ${role}`;
+  }
+
+  return `${actor} ${log.action.toLowerCase()}d ${log.entity.toLowerCase()}`;
+}
+
+export default async function DashboardPage() {
+  const [{ totalNetworks, totalIps, statusMap, recentActivity }, currentUser] =
+    await Promise.all([getDashboardData(), getCurrentUser()]);
+
+  const userCanEdit = !!currentUser && canEdit(currentUser.role);
+
+  const stats = [
+    { label: 'Total Networks', value: totalNetworks, icon: Network },
+    { label: 'Total IP Addresses', value: totalIps, icon: Server },
+    { label: 'Assigned IPs', value: statusMap.ASSIGNED, icon: Activity },
+    { label: 'Available IPs', value: statusMap.AVAILABLE, icon: ShieldCheck },
+  ];
+
+  const statusBreakdown = [
+    {
+      label: 'Assigned',
+      value: statusMap.ASSIGNED,
+      variant: 'default' as const,
+    },
+    {
+      label: 'Available',
+      value: statusMap.AVAILABLE,
+      variant: 'secondary' as const,
+    },
+    {
+      label: 'Reserved',
+      value: statusMap.RESERVED,
+      variant: 'outline' as const,
+    },
+    {
+      label: 'Blocked',
+      value: statusMap.BLOCKED,
+      variant: 'destructive' as const,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
         description="Overview of your IP address space and network inventory."
       >
-        <Button variant="outline">Export</Button>
-        <Button>Add Network</Button>
+        {userCanEdit ? (
+          <Button asChild>
+            <Link href="/networks">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Network
+            </Link>
+          </Button>
+        ) : null}
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -62,49 +147,58 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
             <CardDescription>
-              Latest changes across networks and IP addresses.
+              Latest changes across networks, IP addresses, and users.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Event</TableHead>
-                  <TableHead className="w-[140px] text-right">Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentActivity.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">{row.event}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {row.time}
-                    </TableCell>
+            {recentActivity.length === 0 ? (
+              <EmptyState
+                icon={<Activity className="h-6 w-6" />}
+                title="No activity yet"
+                description="Changes you make across the app will show up here."
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Event</TableHead>
+                    <TableHead className="w-[140px] text-right">Time</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {recentActivity.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">
+                        {describeActivity(row)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatDistanceToNow(row.createdAt, {
+                          addSuffix: true,
+                        })}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>System Status</CardTitle>
-            <CardDescription>Health of connected services.</CardDescription>
+            <CardTitle>IP Status Breakdown</CardTitle>
+            <CardDescription>Across all tracked IP addresses.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">PostgreSQL</span>
-              <Badge variant="secondary">Pending</Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Supabase Auth</span>
-              <Badge variant="secondary">Pending</Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Prisma</span>
-              <Badge variant="secondary">Pending</Badge>
-            </div>
+            {statusBreakdown.map((row) => (
+              <div
+                key={row.label}
+                className="flex items-center justify-between"
+              >
+                <span className="text-sm">{row.label}</span>
+                <Badge variant={row.variant}>{row.value}</Badge>
+              </div>
+            ))}
           </CardContent>
         </Card>
       </div>
