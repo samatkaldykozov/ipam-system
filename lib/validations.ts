@@ -26,6 +26,12 @@ export const setPasswordSchema = z
 
 export type SetPasswordValues = z.infer<typeof setPasswordSchema>;
 
+export const profileSchema = z.object({
+  fullName: z.string().max(120, 'Name is too long').optional(),
+});
+
+export type ProfileValues = z.infer<typeof profileSchema>;
+
 const cidrRegex =
   /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\/(3[0-2]|[12]?\d)$/;
 

@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,11 +10,23 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { getCurrentUser } from '@/lib/auth';
+import { ProfileForm } from '@/app/(app)/settings/profile-form';
+import { PasswordForm } from '@/app/(app)/settings/password-form';
 
-export default function SettingsPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function SettingsPage() {
+  const currentUser = await getCurrentUser();
+
+  // Server-side guard, same pattern as the Users page: this shouldn't
+  // normally be reachable signed out (middleware already redirects), but
+  // the forms below need a real user to submit against.
+  if (!currentUser) {
+    redirect('/login');
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -21,26 +35,14 @@ export default function SettingsPage() {
       />
 
       <div className="max-w-2xl space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Profile</CardTitle>
-            <CardDescription>Update your account information.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full name</Label>
-              <Input id="name" placeholder="Your name" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="you@example.com" />
-            </div>
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button variant="ghost">Cancel</Button>
-            <Button>Save changes</Button>
-          </CardFooter>
-        </Card>
+        <ProfileForm
+          email={currentUser.email}
+          fullName={currentUser.fullName}
+        />
+
+        <Separator />
+
+        <PasswordForm />
 
         <Separator />
 
@@ -53,7 +55,9 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Account deletion will be available once business logic is wired up.
+              Self-service account deletion is intentionally unavailable in this
+              internal tool — deleting the wrong account here has no undo. If
+              you need your account removed, ask an administrator.
             </p>
           </CardContent>
           <CardFooter className="justify-end">

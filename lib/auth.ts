@@ -10,6 +10,7 @@ export type Role = 'Admin' | 'Network Engineer' | 'Viewer';
 export type CurrentUser = {
   id: string;
   email: string;
+  fullName: string | null;
   role: Role;
 };
 
@@ -39,6 +40,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   return {
     id: user.id,
     email: user.email ?? profile?.email ?? '',
+    fullName: profile?.fullName ?? null,
     role,
   };
 }
