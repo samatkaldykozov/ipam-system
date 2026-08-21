@@ -54,24 +54,30 @@ export const networkSchema = z.object({
 
 export type NetworkValues = z.infer<typeof networkSchema>;
 
+// z.literal('') must come BEFORE the coerced-number branch: z.union tries
+// branches in order, and z.coerce.number() happily turns '' into 0 (a
+// value that passes the -90..90 range check), so if the number branch were
+// first, an intentionally-empty field would silently coerce to 0 (the
+// equator) instead of falling through to the empty-string branch and
+// ending up unset via the transform below.
 const latitudeSchema = z
   .union([
+    z.literal(''),
     z.coerce
       .number()
       .min(-90, 'Must be between -90 and 90')
       .max(90, 'Must be between -90 and 90'),
-    z.literal(''),
   ])
   .optional()
   .transform((v) => (v === '' || v === undefined ? undefined : Number(v)));
 
 const longitudeSchema = z
   .union([
+    z.literal(''),
     z.coerce
       .number()
       .min(-180, 'Must be between -180 and 180')
       .max(180, 'Must be between -180 and 180'),
-    z.literal(''),
   ])
   .optional()
   .transform((v) => (v === '' || v === undefined ? undefined : Number(v)));

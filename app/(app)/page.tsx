@@ -1,6 +1,15 @@
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
-import { Activity, Network, Plus, Server, ShieldCheck } from 'lucide-react';
+import {
+  Activity,
+  AlertOctagon,
+  AlertTriangle,
+  CheckCircle2,
+  Network,
+  Plus,
+  Server,
+  ShieldCheck,
+} from 'lucide-react';
 import type { AuditAction } from '@prisma/client';
 
 import { PageHeader } from '@/components/page-header';
@@ -23,7 +32,7 @@ import {
 } from '@/components/ui/table';
 import { EmptyState } from '@/components/empty-state';
 import { getCurrentUser, canEdit } from '@/lib/auth';
-import { getDashboardData } from '@/app/(app)/actions';
+import { getDashboardData, getDashboardAlerts } from '@/app/(app)/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,8 +84,15 @@ function describeActivity(log: ActivityRow): string {
 }
 
 export default async function DashboardPage() {
-  const [{ totalNetworks, totalIps, statusMap, recentActivity }, currentUser] =
-    await Promise.all([getDashboardData(), getCurrentUser()]);
+  const [
+    { totalNetworks, totalIps, statusMap, recentActivity },
+    alerts,
+    currentUser,
+  ] = await Promise.all([
+    getDashboardData(),
+    getDashboardAlerts(),
+    getCurrentUser(),
+  ]);
 
   const userCanEdit = !!currentUser && canEdit(currentUser.role);
 
@@ -141,6 +157,41 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Alerts</CardTitle>
+          <CardDescription>
+            Things that might need attention, computed from current data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {alerts.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              All clear — nothing needs attention right now.
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {alerts.map((alert) => (
+                <li key={alert.id}>
+                  <Link
+                    href={alert.href}
+                    className="flex items-start gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent"
+                  >
+                    {alert.severity === 'critical' ? (
+                      <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    )}
+                    <span>{alert.message}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
