@@ -21,6 +21,12 @@ export const siteConfig = {
       icon: 'MapPin',
       adminOnly: false,
     },
+    {
+      title: 'Audit Log',
+      href: '/audit-log',
+      icon: 'History',
+      adminOnly: false,
+    },
     { title: 'Users', href: '/users', icon: 'Users', adminOnly: true },
     {
       title: 'Settings',

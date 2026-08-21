@@ -10,7 +10,6 @@ import {
   Server,
   ShieldCheck,
 } from 'lucide-react';
-import type { AuditAction } from '@prisma/client';
 
 import { PageHeader } from '@/components/page-header';
 import {
@@ -33,55 +32,9 @@ import {
 import { EmptyState } from '@/components/empty-state';
 import { getCurrentUser, canEdit } from '@/lib/auth';
 import { getDashboardData, getDashboardAlerts } from '@/app/(app)/actions';
+import { describeActivity } from '@/lib/audit-log-utils';
 
 export const dynamic = 'force-dynamic';
-
-type ActivityRow = {
-  id: string;
-  action: AuditAction;
-  entity: string;
-  createdAt: Date;
-  metadata: unknown;
-  user: { email: string } | null;
-};
-
-function describeActivity(log: ActivityRow): string {
-  const meta = (log.metadata ?? {}) as Record<string, unknown>;
-  const str = (key: string) =>
-    typeof meta[key] === 'string' ? (meta[key] as string) : '';
-  const actor = log.user?.email ?? 'Someone';
-
-  if (log.entity === 'Auth') {
-    return log.action === 'LOGIN'
-      ? `${actor} signed in`
-      : `${actor} signed out`;
-  }
-
-  if (log.entity === 'Network') {
-    const label = [str('cidr'), str('name')].filter(Boolean).join(' — ');
-    if (log.action === 'CREATE') return `${actor} created network ${label}`;
-    if (log.action === 'UPDATE') return `${actor} updated network ${label}`;
-    if (log.action === 'DELETE') return `${actor} deleted network ${label}`;
-  }
-
-  if (log.entity === 'IpAddress') {
-    const address = str('address');
-    if (log.action === 'CREATE') return `${actor} assigned ${address}`;
-    if (log.action === 'UPDATE') return `${actor} updated ${address}`;
-    if (log.action === 'DELETE') return `${actor} removed ${address}`;
-  }
-
-  if (log.entity === 'User') {
-    const email = str('email');
-    const role = str('newRole') || str('invitedRole');
-    if (log.action === 'CREATE')
-      return `${actor} invited ${email}${role ? ` as ${role}` : ''}`;
-    if (log.action === 'UPDATE')
-      return `${actor} set ${email}'s role to ${role}`;
-  }
-
-  return `${actor} ${log.action.toLowerCase()}d ${log.entity.toLowerCase()}`;
-}
 
 export default async function DashboardPage() {
   const [

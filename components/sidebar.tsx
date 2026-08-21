@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  History,
   LayoutDashboard,
   MapPin,
   Network,
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { siteConfig } from '@/lib/site-config';
 
 const iconMap: Record<string, LucideIcon> = {
+  History,
   LayoutDashboard,
   MapPin,
   Network,
