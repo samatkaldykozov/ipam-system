@@ -60,3 +60,15 @@ export function cidrsOverlap(a: string, b: string): boolean {
   const instanceB = new IPCIDR(b);
   return instanceA.contains(parsedB.start) || instanceB.contains(parsedA.start);
 }
+
+// Number of usable host addresses in a CIDR block (IPv4). A standard
+// network (/0 through /30) reserves the network and broadcast address, so
+// usable = total - 2. Point-to-point /31s and single-host /32s don't
+// reserve either address (RFC 3021), so usable equals the raw count there.
+export function getNetworkCapacity(cidr: string): number | null {
+  const prefixLength = getPrefixLength(cidr);
+  if (prefixLength === null) return null;
+
+  const total = Math.pow(2, 32 - prefixLength);
+  return prefixLength >= 31 ? total : total - 2;
+}

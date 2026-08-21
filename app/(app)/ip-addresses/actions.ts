@@ -6,6 +6,7 @@ import { Prisma, IpStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ipAddressSchema, type IpAddressValues } from '@/lib/validations';
 import { getCurrentUser, canEdit } from '@/lib/auth';
+import { containsCidr } from '@/lib/cidr-utils';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -136,6 +137,15 @@ export async function createIpAddress(
     };
   }
 
+  if (!containsCidr(network.cidr, `${data.address}/32`)) {
+    return {
+      ok: false,
+      fieldErrors: {
+        address: `This address is outside the selected network's range (${network.cidr})`,
+      },
+    };
+  }
+
   try {
     const ipAddress = await prisma.ipAddress.create({
       data: {
@@ -199,6 +209,15 @@ export async function updateIpAddress(
     return {
       ok: false,
       fieldErrors: { networkId: 'Selected network does not exist' },
+    };
+  }
+
+  if (!containsCidr(network.cidr, `${data.address}/32`)) {
+    return {
+      ok: false,
+      fieldErrors: {
+        address: `This address is outside the selected network's range (${network.cidr})`,
+      },
     };
   }
 

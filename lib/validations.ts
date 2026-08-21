@@ -56,8 +56,14 @@ export type NetworkValues = z.infer<typeof networkSchema>;
 
 const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
 
+const ipv4Regex =
+  /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/;
+
 export const ipAddressSchema = z.object({
-  address: z.string().min(1, 'Address is required'),
+  address: z
+    .string()
+    .min(1, 'Address is required')
+    .regex(ipv4Regex, 'Enter a valid IPv4 address, e.g. 10.0.0.5'),
   hostname: z.string().max(255, 'Hostname is too long').optional(),
   macAddress: z
     .string()

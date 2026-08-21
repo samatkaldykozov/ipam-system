@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/empty-state';
+import { NetworkUtilization } from '@/app/(app)/networks/network-utilization';
 import { NetworkFormDialog } from '@/app/(app)/networks/network-form-dialog';
 import { DeleteNetworkDialog } from '@/app/(app)/networks/delete-network-dialog';
 import { NetworkDetailDialog } from '@/app/(app)/networks/network-detail-dialog';
@@ -340,6 +341,7 @@ export function NetworksTable({
                 <TableHead>Location</TableHead>
                 <TableHead>VLAN</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Utilization</TableHead>
                 <TableHead className="max-w-[200px]">Description</TableHead>
                 {view === 'list' ? (
                   <TableHead>
@@ -416,6 +418,13 @@ export function NetworksTable({
                               node.status.slice(1).toLowerCase()}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          <NetworkUtilization
+                            cidr={node.cidr}
+                            childCount={node._count.children}
+                            ipAddressCount={node._count.ipAddresses}
+                          />
+                        </TableCell>
                         <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
                           {node.description ?? '—'}
                         </TableCell>
@@ -466,6 +475,13 @@ export function NetworksTable({
                           {network.status.charAt(0) +
                             network.status.slice(1).toLowerCase()}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <NetworkUtilization
+                          cidr={network.cidr}
+                          childCount={network._count.children}
+                          ipAddressCount={network._count.ipAddresses}
+                        />
                       </TableCell>
                       <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
                         {network.description ?? '—'}

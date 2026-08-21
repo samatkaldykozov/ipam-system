@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { NetworkUtilization } from '@/app/(app)/networks/network-utilization';
 import { statusBadgeVariant } from '@/app/(app)/networks/types';
 import type { NetworkWithRelations } from '@/app/(app)/networks/types';
 
@@ -94,6 +95,20 @@ export function NetworkDetailDialog({
             value={format(network.updatedAt, 'MMM d, yyyy HH:mm')}
           />
         </dl>
+
+        <Separator />
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Address Utilization
+          </p>
+          <NetworkUtilization
+            cidr={network.cidr}
+            childCount={network._count.children}
+            ipAddressCount={network._count.ipAddresses}
+            className="min-w-0"
+          />
+        </div>
 
         <Separator />
 
