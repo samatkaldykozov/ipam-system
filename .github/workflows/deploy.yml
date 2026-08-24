@@ -1,0 +1,39 @@
+name: Deploy to on-prem server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ENV_PRODUCTION is a single repo secret holding the full contents of
+      # .env.production (Supabase URL/keys, DATABASE_URL, DIRECT_URL) as set
+      # up on the server during the self-hosted migration. Prisma's CLI only
+      # reads a file literally named .env, so we write both.
+      - name: Write environment file
+        run: |
+          cat > .env.production << 'ENVEOF'
+          ${{ secrets.ENV_PRODUCTION }}
+          ENVEOF
+          cp .env.production .env
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run build
+
+      # Replace whatever PM2 process was running with a fresh one built from
+      # this checkout, so the deployed code always matches what's on main.
+      - name: Restart app with PM2
+        run: |
+          pm2 delete ipam-system || true
+          pm2 start npm --name ipam-system -- start
+          pm2 save
