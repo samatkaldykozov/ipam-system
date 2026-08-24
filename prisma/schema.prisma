@@ -44,19 +44,50 @@ enum AuditAction {
   @@map("audit_action")
 }
 
+// RoleScope separates roles that apply to the IPAM branch of the app from
+// roles that apply to the Паспорта (IT-object passports) branch. A user can
+// hold one role of each scope independently — see User.roleId / passportRoleId
+// below, and docs/it-passports-design.md section 2 for the reasoning.
+enum RoleScope {
+  IPAM
+  PASSPORT
+
+  @@map("role_scope")
+}
+
+// Field types available in the passport form builder. TABLE is a repeating
+// group of rows (see TableFieldRow) — its own column layout is stored as
+// JSON on FieldDefinition.tableColumns rather than as a separate model,
+// since it's small, admin-managed schema metadata, not per-instance data.
+enum FieldType {
+  TEXT
+  LONG_TEXT
+  DATE
+  BOOLEAN
+  LINK
+  SELECT
+  TABLE
+
+  @@map("field_type")
+}
+
 // ─────────────────────────────────────────────
 // Role
 // ─────────────────────────────────────────────
 
 model Role {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @unique
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String    @unique
   description String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  scope       RoleScope @default(IPAM)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  users User[]
+  users             User[]            @relation("IpamRole")
+  passportUsers     User[]            @relation("PassportRole")
+  fieldVisibilities FieldVisibility[]
 
+  @@index([scope])
   @@map("roles")
 }
 
@@ -65,18 +96,22 @@ model Role {
 // ─────────────────────────────────────────────
 
 model User {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email     String   @unique
-  fullName  String?  @map("full_name")
-  isActive  Boolean  @default(true) @map("is_active")
-  roleId    String?  @map("role_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String   @unique
+  fullName       String?  @map("full_name")
+  isActive       Boolean  @default(true) @map("is_active")
+  roleId         String?  @map("role_id") @db.Uuid
+  passportRoleId String?  @map("passport_role_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  role      Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  auditLogs AuditLog[]
+  role           Role?                       @relation("IpamRole", fields: [roleId], references: [id], onDelete: SetNull)
+  passportRole   Role?                       @relation("PassportRole", fields: [passportRoleId], references: [id], onDelete: SetNull)
+  auditLogs      AuditLog[]
+  responsibleFor ObjectInstanceResponsible[]
 
   @@index([roleId])
+  @@index([passportRoleId])
   @@map("users")
 }
 
@@ -175,4 +210,141 @@ model AuditLog {
   @@index([entity])
   @@index([action])
   @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Паспорта ИТ-объектов (Паспорт КИС, Паспорт БД, ЦОД, ДГУ, ...)
+//
+// Design: docs/it-passports-design.md. Admins define arbitrary object
+// types through a form builder (ObjectType + FieldDefinition) instead of
+// each new passport kind needing its own tables/code. Ordinary field
+// values live in ObjectInstance.values (jsonb) rather than a per-field EAV
+// table — see the design doc, section 2, for the reasoning (JSONB beats
+// EAV at this scale: single-row reads, native typing, ~3x less storage).
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────
+// ObjectType — an admin-defined kind of IT-object passport.
+// ─────────────────────────────────────────────
+
+model ObjectType {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique
+  code        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  fields    FieldDefinition[]
+  instances ObjectInstance[]
+
+  @@map("object_types")
+}
+
+// ─────────────────────────────────────────────
+// FieldDefinition — one field inside an ObjectType, defined by the admin
+// through the form builder.
+// ─────────────────────────────────────────────
+
+model FieldDefinition {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectTypeId String    @map("object_type_id") @db.Uuid
+  sectionName  String?   @map("section_name")
+  key          String
+  label        String
+  type         FieldType
+  order        Int       @default(0)
+  required     Boolean   @default(false)
+  // When false, only the roles listed in `visibleRoles` may see this
+  // field's value — everyone else has it filtered out server-side.
+  visibleToAll Boolean   @default(true) @map("visible_to_all")
+  // Column layout for TABLE-type fields only: [{ key, label, type }, ...].
+  tableColumns Json?     @map("table_columns")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  objectType   ObjectType        @relation(fields: [objectTypeId], references: [id], onDelete: Cascade)
+  visibleRoles FieldVisibility[]
+  tableRows    TableFieldRow[]
+
+  @@unique([objectTypeId, key])
+  @@index([objectTypeId])
+  @@map("field_definitions")
+}
+
+// ─────────────────────────────────────────────
+// FieldVisibility — used only when FieldDefinition.visibleToAll = false;
+// each row grants one (Passport-scope) role permission to see the field.
+// ─────────────────────────────────────────────
+
+model FieldVisibility {
+  fieldDefinitionId String @map("field_definition_id") @db.Uuid
+  roleId             String @map("role_id") @db.Uuid
+
+  fieldDefinition FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  role            Role            @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([fieldDefinitionId, roleId])
+  @@map("field_visibilities")
+}
+
+// ─────────────────────────────────────────────
+// ObjectInstance — one filled-in passport (e.g. "Паспорт КИС — Биллинг").
+// Ordinary field values live in `values`, keyed by FieldDefinition.key.
+// ─────────────────────────────────────────────
+
+model ObjectInstance {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectTypeId String   @map("object_type_id") @db.Uuid
+  name         String
+  values       Json     @default("{}")
+  createdById  String?  @map("created_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  objectType  ObjectType                  @relation(fields: [objectTypeId], references: [id], onDelete: Restrict)
+  responsible ObjectInstanceResponsible[]
+  tableRows   TableFieldRow[]
+
+  @@index([objectTypeId])
+  @@map("object_instances")
+}
+
+// ─────────────────────────────────────────────
+// ObjectInstanceResponsible — who is personally responsible for a given
+// passport (a passport can have more than one responsible person).
+// ─────────────────────────────────────────────
+
+model ObjectInstanceResponsible {
+  objectInstanceId String @map("object_instance_id") @db.Uuid
+  userId           String @map("user_id") @db.Uuid
+
+  objectInstance ObjectInstance @relation(fields: [objectInstanceId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([objectInstanceId, userId])
+  @@map("object_instance_responsible")
+}
+
+// ─────────────────────────────────────────────
+// TableFieldRow — one row of a TABLE-type field within one passport (e.g.
+// one server row in "Состав системы"). `cells` holds that row's values,
+// keyed by the field's tableColumns.
+// ─────────────────────────────────────────────
+
+model TableFieldRow {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectInstanceId  String   @map("object_instance_id") @db.Uuid
+  fieldDefinitionId String   @map("field_definition_id") @db.Uuid
+  rowOrder          Int      @default(0) @map("row_order")
+  cells             Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  objectInstance  ObjectInstance  @relation(fields: [objectInstanceId], references: [id], onDelete: Cascade)
+  fieldDefinition FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([objectInstanceId])
+  @@index([fieldDefinitionId])
+  @@map("table_field_rows")
 }
