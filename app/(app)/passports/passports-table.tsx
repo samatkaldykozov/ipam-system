@@ -133,16 +133,9 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
               {filtered.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">
-                    {canEdit ? (
-                      <Link
-                        href={`/passports/${item.id}`}
-                        className="hover:underline"
-                      >
-                        {item.name}
-                      </Link>
-                    ) : (
-                      item.name
-                    )}
+                    <Link href={`/passports/${item.id}`} className="hover:underline">
+                      {item.name}
+                    </Link>
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{item.objectType.name}</Badge>
@@ -169,9 +162,9 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Действия</DropdownMenuLabel>
                           <DropdownMenuItem asChild>
-                            <Link href={`/passports/${item.id}`}>
+                            <Link href={`/passports/${item.id}/edit`}>
                               <Pencil className="mr-2 h-4 w-4" />
-                              Открыть
+                              Редактировать
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />

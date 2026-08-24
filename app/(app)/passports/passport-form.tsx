@@ -405,7 +405,9 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
         <Button
           type="button"
           variant="outline"
-          onClick={() => router.push('/passports')}
+          onClick={() =>
+            router.push(isEdit ? `/passports/${passport!.id}` : '/passports')
+          }
           disabled={submitting}
         >
           Отмена

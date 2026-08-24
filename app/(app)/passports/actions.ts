@@ -130,6 +130,84 @@ export async function getPassport(id: string) {
   });
 }
 
+// Masked, read-only view for anyone with any level of passport access,
+// including Guest — the counterpart to getPassport() above, which is the
+// full/unmasked shape used only by the edit form (Admin/Manager). Field
+// definitions AND their values are filtered out server-side before this
+// ever leaves Prisma, per docs/it-passports-design.md section 4 ("скрытые
+// поля не должны даже приходить в браузер"), not just hidden client-side.
+//
+// Admin/Manager (canEditPassports) always see every field, unmasked — the
+// per-field visibleToAll/visibleRoles restriction only applies to Guest
+// and any future view-only role. This matches how the feature was scoped
+// in conversation: a Manager filling in a passport needs to see
+// everything they're responsible for; the masking is about what a Guest
+// is allowed to view afterward.
+export async function getPassportView(id: string) {
+  const currentUser = await requirePassportViewer();
+  if (!currentUser) return null;
+
+  const instance = await prisma.objectInstance.findUnique({
+    where: { id },
+    include: {
+      objectType: {
+        include: {
+          fields: {
+            orderBy: { order: 'asc' },
+            include: { visibleRoles: { include: { role: true } } },
+          },
+        },
+      },
+      responsible: {
+        include: {
+          user: { select: { id: true, email: true, fullName: true } },
+        },
+      },
+      tableRows: true,
+    },
+  });
+  if (!instance) return null;
+
+  const canSeeAll = canEditPassports(currentUser.passportRole);
+  const roleName = currentUser.passportRole;
+
+  const visibleFields = instance.objectType.fields.filter((field) => {
+    if (canSeeAll) return true;
+    if (field.visibleToAll) return true;
+    if (!roleName) return false;
+    return field.visibleRoles.some((v) => v.role.name === roleName);
+  });
+  const visibleFieldIds = new Set(visibleFields.map((f) => f.id));
+
+  const rawValues = instance.values as unknown as Record<string, unknown>;
+  const values: Record<string, unknown> = {};
+  for (const field of visibleFields) {
+    if (field.type === 'TABLE') continue;
+    if (field.key in rawValues) values[field.key] = rawValues[field.key];
+  }
+
+  const tableRows = instance.tableRows.filter((r) =>
+    visibleFieldIds.has(r.fieldDefinitionId),
+  );
+
+  return {
+    id: instance.id,
+    name: instance.name,
+    objectType: {
+      id: instance.objectType.id,
+      name: instance.objectType.name,
+      code: instance.objectType.code,
+    },
+    fields: visibleFields,
+    values,
+    tableRows,
+    responsible: instance.responsible,
+    createdAt: instance.createdAt,
+    updatedAt: instance.updatedAt,
+    canEdit: canSeeAll,
+  };
+}
+
 export async function getPassportUsers() {
   const currentUser = await requirePassportEditor();
   if (!currentUser) return [];
