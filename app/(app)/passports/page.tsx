@@ -1,17 +1,18 @@
 import { redirect } from 'next/navigation';
-import { FileStack } from 'lucide-react';
 
 import { PageHeader } from '@/components/page-header';
-import { Card, CardContent } from '@/components/ui/card';
-import { EmptyState } from '@/components/empty-state';
-import { getCurrentUser, hasPassportAccess, isPassportAdmin } from '@/lib/auth';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getCurrentUser, hasPassportAccess, canEditPassports } from '@/lib/auth';
+import { getPassports } from '@/app/(app)/passports/actions';
+import { PassportsTable } from '@/app/(app)/passports/passports-table';
 
 export const dynamic = 'force-dynamic';
 
-// Placeholder landing page for the Паспорта branch — this step (navigation
-// shell, docs/it-passports-design.md plan step 2) only wires up the branch
-// switcher and access control. The actual passport list/create/fill flow
-// is plan step 4.
+// Plan step 4 (docs/it-passports-design.md section 5): the list itself
+// shows no field values (just name/type/responsible), so it's safe for
+// anyone with passport access, including Guest. Creating/editing/deleting
+// a passport is gated to Passport Admin/Manager (canEditPassports).
+// Masked field-level viewing for everyone else is plan step 5.
 export default async function PassportsPage() {
   const currentUser = await getCurrentUser();
 
@@ -19,7 +20,8 @@ export default async function PassportsPage() {
     redirect('/');
   }
 
-  const canCreateTypes = isPassportAdmin(currentUser.passportRole);
+  const canEdit = canEditPassports(currentUser.passportRole);
+  const { items } = await getPassports({});
 
   return (
     <div className="space-y-6">
@@ -28,16 +30,11 @@ export default async function PassportsPage() {
         description="Паспорта ИТ-объектов — базы данных, КИС, ЦОД и других систем."
       />
       <Card>
-        <CardContent className="pt-6">
-          <EmptyState
-            icon={<FileStack className="h-6 w-6" />}
-            title="Список паспортов появится здесь"
-            description={
-              canCreateTypes
-                ? 'Сначала нужно создать хотя бы один тип объекта в конструкторе форм, а затем можно будет заводить паспорта этого типа.'
-                : 'Пока не заведено ни одного типа объекта. Обратитесь к Passport Admin.'
-            }
-          />
+        <CardHeader>
+          <CardTitle>Список паспортов</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PassportsTable items={items} canEdit={canEdit} />
         </CardContent>
       </Card>
     </div>
