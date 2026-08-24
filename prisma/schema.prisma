@@ -260,6 +260,8 @@ model FieldDefinition {
   visibleToAll Boolean   @default(true) @map("visible_to_all")
   // Column layout for TABLE-type fields only: [{ key, label, type }, ...].
   tableColumns Json?     @map("table_columns")
+  // Fixed list of choices for SELECT-type fields only: string[] as JSON.
+  options      Json?     @map("options")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

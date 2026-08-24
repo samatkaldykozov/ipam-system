@@ -1,23 +1,24 @@
 import { redirect } from 'next/navigation';
-import { LayoutTemplate } from 'lucide-react';
 
 import { PageHeader } from '@/components/page-header';
-import { Card, CardContent } from '@/components/ui/card';
-import { EmptyState } from '@/components/empty-state';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser, isPassportAdmin } from '@/lib/auth';
+import { getObjectTypes } from '@/app/(app)/object-types/actions';
+import { ObjectTypesTable } from '@/app/(app)/object-types/object-types-table';
 
 export const dynamic = 'force-dynamic';
 
-// Placeholder for the form builder — admin defines object types (Паспорт
-// КИС, Паспорт БД, ЦОД, ...) and their fields here. This step (navigation
-// shell, docs/it-passports-design.md plan step 2) only wires up access
-// control; the actual builder UI is plan step 3.
+// Admin's landing page for the form builder (docs/it-passports-design.md
+// plan step 3): create/edit/delete object types here, then click into one
+// to manage its fields (app/(app)/object-types/[id]/page.tsx).
 export default async function ObjectTypesPage() {
   const currentUser = await getCurrentUser();
 
   if (!currentUser || !isPassportAdmin(currentUser.passportRole)) {
     redirect('/');
   }
+
+  const objectTypes = await getObjectTypes();
 
   return (
     <div className="space-y-6">
@@ -26,12 +27,11 @@ export default async function ObjectTypesPage() {
         description="Создавайте типы ИТ-объектов и их поля — Паспорт КИС, Паспорт БД, ЦОД, ДГУ и любые другие."
       />
       <Card>
-        <CardContent className="pt-6">
-          <EmptyState
-            icon={<LayoutTemplate className="h-6 w-6" />}
-            title="Конструктор появится здесь"
-            description="Создание типов объектов и полей — следующий шаг в плане модуля Паспортов."
-          />
+        <CardHeader>
+          <CardTitle>Типы объектов</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ObjectTypesTable objectTypes={objectTypes} />
         </CardContent>
       </Card>
     </div>

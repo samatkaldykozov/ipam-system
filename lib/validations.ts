@@ -130,3 +130,87 @@ export const ipAddressSchema = z.object({
 });
 
 export type IpAddressValues = z.infer<typeof ipAddressSchema>;
+
+// ─────────────────────────────────────────────
+// IT-object passports — form builder (see docs/it-passports-design.md).
+// ─────────────────────────────────────────────
+
+const objectTypeCodeRegex = /^[a-z0-9_]+$/;
+
+export const objectTypeSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(120, 'Name is too long'),
+  code: z
+    .string()
+    .min(1, 'Code is required')
+    .max(40, 'Code is too long')
+    .regex(
+      objectTypeCodeRegex,
+      'Use lowercase letters, numbers, and underscores only',
+    ),
+  description: z.string().max(500, 'Description is too long').optional(),
+});
+
+export type ObjectTypeValues = z.infer<typeof objectTypeSchema>;
+
+export const FIELD_DEFINITION_TYPES = [
+  'TEXT',
+  'LONG_TEXT',
+  'DATE',
+  'BOOLEAN',
+  'LINK',
+  'SELECT',
+  'TABLE',
+] as const;
+
+// Column types allowed inside a TABLE field's own columns — TABLE can't
+// nest inside itself.
+export const TABLE_COLUMN_TYPES = [
+  'TEXT',
+  'LONG_TEXT',
+  'DATE',
+  'BOOLEAN',
+  'LINK',
+] as const;
+
+const fieldKeyRegex = /^[a-z0-9_]+$/;
+
+export const tableColumnSchema = z.object({
+  key: z
+    .string()
+    .min(1, 'Column key is required')
+    .regex(fieldKeyRegex, 'Lowercase letters, numbers, underscores only'),
+  label: z.string().min(1, 'Column label is required'),
+  type: z.enum(TABLE_COLUMN_TYPES),
+});
+
+// Server-side shape for creating/updating one FieldDefinition. The admin
+// UI (app/(app)/object-types/[id]/field-form-dialog.tsx) builds its own
+// form state (options/tableColumns as react-hook-form field arrays) and
+// transforms it into this shape before calling the server action — this
+// schema is what actually gets validated and persisted.
+export const fieldDefinitionSchema = z
+  .object({
+    sectionName: z.string().max(120, 'Section name is too long').optional(),
+    key: z
+      .string()
+      .min(1, 'Key is required')
+      .max(60, 'Key is too long')
+      .regex(fieldKeyRegex, 'Lowercase letters, numbers, underscores only'),
+    label: z.string().min(1, 'Label is required').max(200, 'Label is too long'),
+    type: z.enum(FIELD_DEFINITION_TYPES),
+    required: z.boolean().default(false),
+    visibleToAll: z.boolean().default(true),
+    visibleRoleIds: z.array(z.string()).default([]),
+    options: z.array(z.string().min(1)).default([]),
+    tableColumns: z.array(tableColumnSchema).default([]),
+  })
+  .refine((data) => data.type !== 'SELECT' || data.options.length > 0, {
+    message: 'Add at least one option',
+    path: ['options'],
+  })
+  .refine((data) => data.type !== 'TABLE' || data.tableColumns.length > 0, {
+    message: 'Add at least one column',
+    path: ['tableColumns'],
+  });
+
+export type FieldDefinitionValues = z.infer<typeof fieldDefinitionSchema>;
