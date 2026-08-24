@@ -346,14 +346,19 @@ export function FieldFormDialog({
                         value={f2.value}
                         onChange={(e) => {
                           f2.onChange(e.target.value);
-                          const current = getValues(
-                            `tableColumns.${index}.key`,
-                          );
-                          if (!current) {
-                            setValue(
-                              `tableColumns.${index}.key`,
-                              slugify(e.target.value),
-                            );
+                          // Read/write the whole array through the static
+                          // 'tableColumns' path rather than a dynamic
+                          // `tableColumns.${index}.key` one — keeps this
+                          // fully typed without leaning on react-hook-form's
+                          // template-literal path inference.
+                          const columns = getValues('tableColumns');
+                          if (!columns[index]?.key) {
+                            const next = [...columns];
+                            next[index] = {
+                              ...next[index],
+                              key: slugify(e.target.value),
+                            };
+                            setValue('tableColumns', next);
                           }
                         }}
                       />

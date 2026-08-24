@@ -95,7 +95,16 @@ export async function createObjectType(
   values: ObjectTypeValues,
 ): Promise<ActionResult<{ id: string }>> {
   const currentUser = await requirePassportAdmin();
-  if (!currentUser) return PERMISSION_DENIED;
+  // Can't reuse the shared PERMISSION_DENIED constant here — it's typed as
+  // ActionResult<void>, which TypeScript won't widen to this function's
+  // ActionResult<{ id: string }> return type even though `data` is
+  // optional on both. A fresh literal sidesteps that.
+  if (!currentUser) {
+    return {
+      ok: false,
+      message: 'You do not have permission to perform this action.',
+    };
+  }
 
   const parsed = objectTypeSchema.safeParse(values);
   if (!parsed.success) {
