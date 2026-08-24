@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { Prisma } from '@prisma/client';
-import type { FieldDefinition } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import {
@@ -10,6 +9,7 @@ import {
   hasPassportAccess,
   canEditPassports,
 } from '@/lib/auth';
+import { validatePassportValues } from '@/app/(app)/passports/validate-values';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -219,81 +219,11 @@ export async function getPassportUsers() {
 }
 
 // ─────────────────────────────────────────────
-// Validation
-// ─────────────────────────────────────────────
-
-type ValidatedPassportData = {
-  values: Record<string, unknown>;
-  tableRows: Record<string, Record<string, unknown>[]>;
-};
-
-// Checks required-ness and does light type normalization per field. This
-// intentionally does not build a full per-field-type Zod schema — the set
-// of fields is only known at runtime (defined by the admin through the
-// form builder), so a hand-rolled pass keyed by FieldDefinition.type is
-// simpler and just as safe for what we actually need to guarantee here.
-function validatePassportValues(
-  fields: FieldDefinition[],
-  rawValues: Record<string, unknown>,
-  rawTableRows: Record<string, { cells: Record<string, unknown> }[]>,
-):
-  | { ok: true; data: ValidatedPassportData }
-  | { ok: false; fieldErrors: Record<string, string> } {
-  const fieldErrors: Record<string, string> = {};
-  const values: Record<string, unknown> = {};
-  const tableRows: Record<string, Record<string, unknown>[]> = {};
-
-  for (const field of fields) {
-    if (field.type === 'TABLE') {
-      const rows = rawTableRows[field.key] ?? [];
-      if (field.required && rows.length === 0) {
-        fieldErrors[field.key] = `«${field.label}»: добавьте хотя бы одну строку`;
-      }
-      tableRows[field.key] = rows.map((r) => r.cells ?? {});
-      continue;
-    }
-
-    const raw = rawValues[field.key];
-
-    if (field.type === 'BOOLEAN') {
-      values[field.key] = raw === true;
-      continue;
-    }
-
-    const strValue =
-      typeof raw === 'string' ? raw.trim() : raw == null ? '' : String(raw);
-
-    if (field.required && !strValue) {
-      fieldErrors[field.key] = `«${field.label}»: обязательное поле`;
-      continue;
-    }
-    if (!strValue) {
-      // Unset optional field — omit the key entirely rather than storing
-      // an empty string, so "not filled in" stays distinguishable.
-      continue;
-    }
-
-    if (field.type === 'SELECT') {
-      const options = Array.isArray(field.options)
-        ? (field.options as unknown as string[])
-        : [];
-      if (options.length > 0 && !options.includes(strValue)) {
-        fieldErrors[field.key] = `«${field.label}»: недопустимое значение`;
-        continue;
-      }
-    }
-
-    values[field.key] = strValue;
-  }
-
-  if (Object.keys(fieldErrors).length > 0) {
-    return { ok: false, fieldErrors };
-  }
-  return { ok: true, data: { values, tableRows } };
-}
-
-// ─────────────────────────────────────────────
 // Create / update / delete
+//
+// Validation (validatePassportValues) now lives in validate-values.ts —
+// shared with csv-actions.ts, which can't import it from here since a
+// 'use server' file may only export async functions.
 // ─────────────────────────────────────────────
 
 type PassportInput = {

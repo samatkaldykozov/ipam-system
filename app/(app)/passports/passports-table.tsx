@@ -4,13 +4,16 @@ import * as React from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
+  Download,
   FileStack,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
   Trash2,
+  Upload,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +42,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/empty-state';
+import { CsvImportDialog } from '@/components/csv-import-dialog';
 import { DeletePassportDialog } from '@/app/(app)/passports/delete-passport-dialog';
+import {
+  exportPassportsCsv,
+  importPassportsCsv,
+} from '@/app/(app)/passports/csv-actions';
 import type { PassportListItem } from '@/app/(app)/passports/types';
 
 interface PassportsTableProps {
@@ -53,6 +61,8 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
   const [deleteTarget, setDeleteTarget] = React.useState<PassportListItem | null>(
     null,
   );
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
 
   const types = React.useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
@@ -73,6 +83,30 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
       return item.name.toLowerCase().includes(q);
     });
   }, [items, search, typeFilter]);
+
+  const selectedType =
+    typeFilter !== 'ALL' ? types.find((t) => t.id === typeFilter) : undefined;
+
+  async function handleExport() {
+    if (typeFilter === 'ALL') return;
+    setExporting(true);
+    try {
+      const csv = await exportPassportsCsv(typeFilter);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `passports-${selectedType?.name ?? typeFilter}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Не удалось экспортировать паспорта');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const newButton = canEdit ? (
     <Button asChild>
@@ -112,7 +146,25 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
             </Select>
           ) : null}
         </div>
-        {newButton}
+        <div className="flex items-center gap-2">
+          {canEdit && typeFilter !== 'ALL' ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={handleExport}
+                disabled={exporting}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Экспорт CSV
+              </Button>
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Импорт CSV
+              </Button>
+            </>
+          ) : null}
+          {newButton}
+        </div>
       </div>
 
       {filtered.length > 0 ? (
@@ -210,6 +262,16 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
         }}
         passport={deleteTarget}
       />
+      {typeFilter !== 'ALL' ? (
+        <CsvImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          title={`Импорт: ${selectedType?.name ?? ''}`}
+          description="Массовое создание паспортов из CSV-файла. Табличные поля (например, «Состав системы») в CSV не входят — заполните их потом в форме."
+          columnsHint="name, + по одному столбцу на каждое нетабличное поле (ключ поля)"
+          onImport={(csvText) => importPassportsCsv(typeFilter, csvText)}
+        />
+      ) : null}
     </div>
   );
 }
