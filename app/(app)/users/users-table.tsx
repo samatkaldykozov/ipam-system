@@ -24,37 +24,71 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { EmptyState } from '@/components/empty-state';
-import { updateUserRole } from '@/app/(app)/users/actions';
+import { updateUserRole, updateUserPassportRole } from '@/app/(app)/users/actions';
 import { InviteUserDialog } from '@/app/(app)/users/invite-user-dialog';
 
-type UserWithRole = User & { role: Role | null };
+type UserWithRoles = User & { role: Role | null; passportRole: Role | null };
 
 interface UsersTableProps {
-  users: UserWithRole[];
-  roles: Role[];
+  users: UserWithRoles[];
+  ipamRoles: Role[];
+  passportRoles: Role[];
   currentUserId: string;
+  canManageIpamRoles: boolean;
+  canManagePassportRoles: boolean;
 }
 
+// Radix Select doesn't allow an empty-string item value, so "no Passport
+// role assigned" needs its own sentinel that the handler below translates
+// back to null before calling the server action.
+const NO_PASSPORT_ROLE = '__none__';
+
 function roleBadgeVariant(roleName: string | undefined) {
-  if (roleName === 'Admin') return 'default' as const;
-  if (roleName === 'Network Engineer') return 'secondary' as const;
+  if (roleName === 'Admin' || roleName === 'Passport Admin') return 'default' as const;
+  if (roleName === 'Network Engineer' || roleName === 'Passport Manager')
+    return 'secondary' as const;
   return 'outline' as const;
 }
 
-export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
-  const [pendingId, setPendingId] = React.useState<string | null>(null);
+export function UsersTable({
+  users,
+  ipamRoles,
+  passportRoles,
+  currentUserId,
+  canManageIpamRoles,
+  canManagePassportRoles,
+}: UsersTableProps) {
+  const [pendingRoleId, setPendingRoleId] = React.useState<string | null>(null);
+  const [pendingPassportRoleId, setPendingPassportRoleId] = React.useState<
+    string | null
+  >(null);
   const [inviteOpen, setInviteOpen] = React.useState(false);
 
   async function handleRoleChange(userId: string, roleId: string) {
-    setPendingId(userId);
+    setPendingRoleId(userId);
     const result = await updateUserRole(userId, roleId);
-    setPendingId(null);
+    setPendingRoleId(null);
 
     if (!result.ok) {
       toast.error(result.message ?? 'Failed to update role');
       return;
     }
     toast.success(result.message ?? 'Role updated');
+  }
+
+  async function handlePassportRoleChange(userId: string, value: string) {
+    setPendingPassportRoleId(userId);
+    const result = await updateUserPassportRole(
+      userId,
+      value === NO_PASSPORT_ROLE ? null : value,
+    );
+    setPendingPassportRoleId(null);
+
+    if (!result.ok) {
+      toast.error(result.message ?? 'Failed to update Passport role');
+      return;
+    }
+    toast.success(result.message ?? 'Passport role updated');
   }
 
   const inviteButton = (
@@ -77,7 +111,7 @@ export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
         <InviteUserDialog
           open={inviteOpen}
           onOpenChange={setInviteOpen}
-          roles={roles}
+          roles={ipamRoles}
         />
       </div>
     );
@@ -93,14 +127,16 @@ export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
               <TableHead>Email</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Role</TableHead>
+              <TableHead>Role (IPAM)</TableHead>
+              <TableHead>Role (Паспорта)</TableHead>
               <TableHead>Joined</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.map((user) => {
               const isSelf = user.id === currentUserId;
-              const isPending = pendingId === user.id;
+              const isRolePending = pendingRoleId === user.id;
+              const isPassportRolePending = pendingPassportRoleId === user.id;
               return (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.email}</TableCell>
@@ -115,7 +151,7 @@ export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {isSelf ? (
+                    {isSelf || !canManageIpamRoles ? (
                       <Badge variant={roleBadgeVariant(user.role?.name)}>
                         {user.role?.name ?? 'Viewer'}
                       </Badge>
@@ -125,10 +161,10 @@ export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
                         onValueChange={(value) =>
                           handleRoleChange(user.id, value)
                         }
-                        disabled={isPending}
+                        disabled={isRolePending}
                       >
                         <SelectTrigger className="w-[180px]">
-                          {isPending ? (
+                          {isRolePending ? (
                             <span className="flex items-center gap-2 text-muted-foreground">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               Updating…
@@ -138,7 +174,54 @@ export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
                           )}
                         </SelectTrigger>
                         <SelectContent>
-                          {roles.map((role) => (
+                          {ipamRoles.map((role) => (
+                            <SelectItem key={role.id} value={role.id}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {isSelf ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        (you)
+                      </p>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    {isSelf || !canManagePassportRoles ? (
+                      user.passportRole ? (
+                        <Badge variant={roleBadgeVariant(user.passportRole.name)}>
+                          {user.passportRole.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          No access
+                        </span>
+                      )
+                    ) : (
+                      <Select
+                        value={user.passportRoleId ?? NO_PASSPORT_ROLE}
+                        onValueChange={(value) =>
+                          handlePassportRoleChange(user.id, value)
+                        }
+                        disabled={isPassportRolePending}
+                      >
+                        <SelectTrigger className="w-[180px]">
+                          {isPassportRolePending ? (
+                            <span className="flex items-center gap-2 text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Updating…
+                            </span>
+                          ) : (
+                            <SelectValue />
+                          )}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_PASSPORT_ROLE}>
+                            No access
+                          </SelectItem>
+                          {passportRoles.map((role) => (
                             <SelectItem key={role.id} value={role.id}>
                               {role.name}
                             </SelectItem>
@@ -164,7 +247,7 @@ export function UsersTable({ users, roles, currentUserId }: UsersTableProps) {
       <InviteUserDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
-        roles={roles}
+        roles={ipamRoles}
       />
     </div>
   );

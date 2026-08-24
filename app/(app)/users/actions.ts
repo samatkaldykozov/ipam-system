@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
-import { getCurrentUser, isAdmin } from '@/lib/auth';
+import { getCurrentUser, isAdmin, isPassportAdmin } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { inviteUserSchema, type InviteUserValues } from '@/lib/validations';
 
@@ -42,19 +42,24 @@ async function writeAudit(
   });
 }
 
-// Users list for the admin table, plus the full set of roles for the
-// per-row dropdown. Kept together since both are only ever needed on the
-// same page.
+// Users list for the admin table, plus roles split by scope for the two
+// per-row dropdowns (IPAM role and Passport role are independent — see
+// docs/it-passports-design.md section 2). Kept together since both are
+// only ever needed on the same page.
 export async function getUsersAndRoles() {
-  const [users, roles] = await Promise.all([
+  const [users, allRoles] = await Promise.all([
     prisma.user.findMany({
-      include: { role: true },
+      include: { role: true, passportRole: true },
       orderBy: { email: 'asc' },
     }),
     prisma.role.findMany({ orderBy: { name: 'asc' } }),
   ]);
 
-  return { users, roles };
+  return {
+    users,
+    ipamRoles: allRoles.filter((role) => role.scope === 'IPAM'),
+    passportRoles: allRoles.filter((role) => role.scope === 'PASSPORT'),
+  };
 }
 
 export async function updateUserRole(
@@ -94,6 +99,55 @@ export async function updateUserRole(
     return { ok: true, message: `Role updated to ${role.name}` };
   } catch {
     return { ok: false, message: 'Failed to update role' };
+  }
+}
+
+// Passport role is independent of the IPAM role above (see lib/auth.ts and
+// docs/it-passports-design.md section 2) — checked and stored separately.
+// Unlike updateUserRole, `roleId` may be null here: unlike IPAM (which
+// always has a safe Viewer fallback), "no passport role" is a real, valid
+// state — it's what hides the Паспорта branch from that user entirely.
+export async function updateUserPassportRole(
+  userId: string,
+  roleId: string | null,
+): Promise<ActionResult> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !isPassportAdmin(currentUser.passportRole)) {
+    return permissionDenied();
+  }
+
+  // Same reasoning as updateUserRole: removing your own Passport Admin
+  // role could lock you out of this page with no way back in.
+  if (userId === currentUser.id) {
+    return {
+      ok: false,
+      message:
+        'You cannot change your own Passport role. Ask another Passport Admin instead.',
+    };
+  }
+
+  let roleName = 'No access';
+  if (roleId) {
+    const role = await prisma.role.findUnique({ where: { id: roleId } });
+    if (!role || role.scope !== 'PASSPORT') {
+      return { ok: false, message: 'Selected role does not exist' };
+    }
+    roleName = role.name;
+  }
+
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { passportRoleId: roleId },
+    });
+    await writeAudit('UPDATE', user.id, currentUser.id, {
+      email: user.email,
+      newPassportRole: roleName,
+    });
+    revalidatePath('/users');
+    return { ok: true, message: `Passport role updated to ${roleName}` };
+  } catch {
+    return { ok: false, message: 'Failed to update Passport role' };
   }
 }
 

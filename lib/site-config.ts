@@ -1,7 +1,14 @@
+// Navigation is split into two branches, switched between in the sidebar
+// (see components/sidebar.tsx): IPAM (everything built so far) and
+// Passports (the new IT-object passports module). Each branch has its own
+// nav list and its own "adminOnly" meaning — IPAM's adminOnly checks
+// isAdmin(role), Passports' adminOnly checks isPassportAdmin(passportRole).
+// See docs/it-passports-design.md section 4.
+
 export const siteConfig = {
   name: 'IPAM',
   description: 'IP Address Management',
-  nav: [
+  ipamNav: [
     {
       title: 'Dashboard',
       href: '/',
@@ -41,4 +48,33 @@ export const siteConfig = {
       adminOnly: false,
     },
   ] as const,
+  passportNav: [
+    {
+      title: 'Паспорта',
+      href: '/passports',
+      icon: 'FileStack',
+      adminOnly: false,
+    },
+    {
+      title: 'Конструктор форм',
+      href: '/object-types',
+      icon: 'LayoutTemplate',
+      adminOnly: true,
+    },
+    {
+      title: 'Audit Log',
+      href: '/audit-log',
+      icon: 'History',
+      adminOnly: false,
+    },
+    { title: 'Users', href: '/users', icon: 'Users', adminOnly: true },
+    {
+      title: 'Settings',
+      href: '/settings',
+      icon: 'Settings',
+      adminOnly: false,
+    },
+  ] as const,
 };
+
+export type Branch = 'ipam' | 'passport';

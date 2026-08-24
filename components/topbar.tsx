@@ -23,9 +23,10 @@ import {
 interface TopbarProps {
   email: string | null;
   role: string | null;
+  passportRole: string | null;
 }
 
-export function Topbar({ email, role }: TopbarProps) {
+export function Topbar({ email, role, passportRole }: TopbarProps) {
   const router = useRouter();
   const [signingOut, setSigningOut] = React.useState(false);
 
@@ -70,6 +71,7 @@ export function Topbar({ email, role }: TopbarProps) {
             {role ? (
               <span className="text-xs font-normal text-muted-foreground">
                 {role}
+                {passportRole ? ` · ${passportRole}` : ''}
               </span>
             ) : null}
           </DropdownMenuLabel>
