@@ -29,6 +29,12 @@ export const siteConfig = {
     },
     { title: 'Users', href: '/users', icon: 'Users', adminOnly: true },
     {
+      title: 'Data Integrity',
+      href: '/data-integrity',
+      icon: 'ClipboardCheck',
+      adminOnly: true,
+    },
+    {
       title: 'Settings',
       href: '/settings',
       icon: 'Settings',
