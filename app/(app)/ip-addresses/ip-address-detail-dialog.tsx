@@ -12,7 +12,11 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { statusBadgeVariant } from '@/app/(app)/ip-addresses/types';
+import {
+  branchLabel,
+  deviceTypeLabel,
+  statusBadgeVariant,
+} from '@/app/(app)/ip-addresses/types';
 import type { IpAddressWithNetwork } from '@/app/(app)/ip-addresses/types';
 
 interface IpAddressDetailDialogProps {
@@ -73,6 +77,14 @@ export function IpAddressDetailDialog({
               ipAddress.network.name ? ` — ${ipAddress.network.name}` : ''
             }`}
           />
+          <Field label="Филиал" value={branchLabel(ipAddress.branch)} />
+          <Field label="Тип устройства" value={deviceTypeLabel(ipAddress.deviceType)} />
+          <Field
+            label="Ответственное подразделение/Пользователь"
+            value={ipAddress.responsibleParty}
+          />
+          <Field label="Назначение" value={ipAddress.purpose} />
+          <Field label="Основание" value={ipAddress.basis} />
           <Field
             label="Assigned"
             value={

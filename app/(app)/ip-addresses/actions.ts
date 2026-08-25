@@ -214,6 +214,11 @@ export async function createIpAddress(
         description: data.description || null,
         networkId: data.networkId,
         assignedAt: data.status === 'ASSIGNED' ? new Date() : null,
+        branch: data.branch ?? null,
+        responsibleParty: data.responsibleParty || null,
+        purpose: data.purpose || null,
+        deviceType: data.deviceType ?? null,
+        basis: data.basis || null,
       },
     });
 
@@ -304,6 +309,11 @@ export async function updateIpAddress(
           : leavingAssigned
             ? null
             : current.assignedAt,
+        branch: data.branch ?? null,
+        responsibleParty: data.responsibleParty || null,
+        purpose: data.purpose || null,
+        deviceType: data.deviceType ?? null,
+        basis: data.basis || null,
       },
     });
 

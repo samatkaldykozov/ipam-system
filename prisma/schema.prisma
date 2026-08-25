@@ -34,6 +34,39 @@ enum IpStatus {
   @@map("ip_status")
 }
 
+enum DeviceType {
+  COMPUTER           // Компьютер
+  PRINTER_MFU        // Принтер, МФУ
+  SERVER             // Сервер
+  NETWORK_EQUIPMENT  // Сетевое оборудование
+  VIRTUAL_SERVER     // Виртуальный сервер
+  APPLICATION        // Приложение
+  MICROSERVICE       // Микросервис
+  CAMERA             // Видеокамера
+  UPS                // ИБП
+  POWER_CLIMATE      // Энергетика и климатехника
+  OTHER              // Прочее
+
+  @@map("device_type")
+}
+
+enum Branch {
+  DIT                   // ДИТ
+  DRB                   // ДРБ
+  ODS                    // ОДС
+  DKB                    // ДКБ
+  SERVICE_FACTORY        // Сервисная фабрика
+  CORPORATE_UNIVERSITY   // Корпоративный университет
+  DCB                     // ДЦБ
+  DPB                     // ДПБ (Дирекция Производственной Безопасности)
+  DUP                     // ДУП (Дирекция Управления Проектами)
+  DTK                     // ДТК (Дирекция Телеком Комплект)
+  PROFKOM                 // Профком
+  KT_CLOUD_LAB             // ТОО KT Cloud Lab
+
+  @@map("branch")
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -183,6 +216,15 @@ model IpAddress {
   assignedAt  DateTime? @map("assigned_at") @db.Timestamptz
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Card fields added 25 August 2026 — all free text except deviceType,
+  // which is a fixed, easy-to-extend enum (mirrors IpStatus). None of
+  // these are required, so existing rows stay valid untouched.
+  branch           Branch?     @map("branch")            // «Филиал»
+  responsibleParty String?     @map("responsible_party") // «Ответственное подразделение/Пользователь»
+  purpose          String?     @map("purpose")           // «Назначение»
+  deviceType       DeviceType? @map("device_type")       // «Тип устройства»
+  basis            String?     @map("basis")             // «Основание»
 
   network Network @relation(fields: [networkId], references: [id], onDelete: Cascade)
 

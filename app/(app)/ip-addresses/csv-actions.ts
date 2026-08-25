@@ -1,12 +1,17 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { IpStatus } from '@prisma/client';
+import { Branch, DeviceType, IpStatus } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser, canEdit } from '@/lib/auth';
 import { containsCidr } from '@/lib/cidr-utils';
-import { ipv4Regex, macAddressRegex } from '@/lib/validations';
+import {
+  BRANCH_VALUES,
+  DEVICE_TYPE_VALUES,
+  ipv4Regex,
+  macAddressRegex,
+} from '@/lib/validations';
 import { parseCsv, generateCsv, type ImportResult } from '@/lib/csv-utils';
 import { IP_STATUSES } from '@/app/(app)/ip-addresses/types';
 
@@ -17,6 +22,11 @@ const IP_ADDRESS_CSV_HEADERS = [
   'status',
   'description',
   'networkCidr',
+  'branch',
+  'responsibleParty',
+  'purpose',
+  'deviceType',
+  'basis',
 ];
 
 const MAX_IMPORT_ROWS = 5000;
@@ -39,6 +49,11 @@ export async function exportIpAddressesCsv(): Promise<string> {
     ip.status,
     ip.description ?? '',
     ip.network.cidr,
+    ip.branch ?? '',
+    ip.responsibleParty ?? '',
+    ip.purpose ?? '',
+    ip.deviceType ?? '',
+    ip.basis ?? '',
   ]);
 
   return generateCsv(IP_ADDRESS_CSV_HEADERS, rows);
@@ -163,6 +178,34 @@ export async function importIpAddressesCsv(
 
     const hostname = (record.hostname ?? '').trim() || null;
     const description = (record.description ?? '').trim() || null;
+
+    const branchRaw = (record.branch ?? '').trim().toUpperCase();
+    if (branchRaw && !BRANCH_VALUES.includes(branchRaw as Branch)) {
+      errors.push({
+        row: rowNum,
+        message: `Invalid branch "${record.branch}" — must be one of ${BRANCH_VALUES.join(', ')}`,
+      });
+      continue;
+    }
+    const branch = branchRaw ? (branchRaw as Branch) : null;
+
+    const deviceTypeRaw = (record.deviceType ?? '').trim().toUpperCase();
+    if (
+      deviceTypeRaw &&
+      !DEVICE_TYPE_VALUES.includes(deviceTypeRaw as DeviceType)
+    ) {
+      errors.push({
+        row: rowNum,
+        message: `Invalid deviceType "${record.deviceType}" — must be one of ${DEVICE_TYPE_VALUES.join(', ')}`,
+      });
+      continue;
+    }
+    const deviceType = deviceTypeRaw ? (deviceTypeRaw as DeviceType) : null;
+
+    const responsibleParty = (record.responsibleParty ?? '').trim() || null;
+    const purpose = (record.purpose ?? '').trim() || null;
+    const basis = (record.basis ?? '').trim() || null;
+
     const existingId = idByAddress.get(address);
 
     try {
@@ -189,6 +232,11 @@ export async function importIpAddressesCsv(
               : leavingAssigned
                 ? null
                 : current?.assignedAt,
+            branch,
+            responsibleParty,
+            purpose,
+            deviceType,
+            basis,
           },
         });
         ipAddressId = ipAddress.id;
@@ -202,6 +250,11 @@ export async function importIpAddressesCsv(
             status: statusRaw as IpStatus,
             description,
             networkId,
+            branch,
+            responsibleParty,
+            purpose,
+            deviceType,
+            basis,
             assignedAt: statusRaw === 'ASSIGNED' ? new Date() : null,
           },
         });

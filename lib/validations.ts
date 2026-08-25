@@ -110,6 +110,40 @@ export const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
 export const ipv4Regex =
   /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/;
 
+// «Филиал» — fixed list, matches the enum values in schema.prisma
+// (IpAddress.branch / Branch). Company-specific, given by the user
+// 25 August 2026 — extend both this array and the Prisma enum together
+// if new branches are added.
+export const BRANCH_VALUES = [
+  'DIT',
+  'DRB',
+  'ODS',
+  'DKB',
+  'SERVICE_FACTORY',
+  'CORPORATE_UNIVERSITY',
+  'DCB',
+  'DPB',
+  'DUP',
+  'DTK',
+  'PROFKOM',
+  'KT_CLOUD_LAB',
+] as const;
+
+// «Тип устройства» — fixed list, matches DeviceType in schema.prisma.
+export const DEVICE_TYPE_VALUES = [
+  'COMPUTER',
+  'PRINTER_MFU',
+  'SERVER',
+  'NETWORK_EQUIPMENT',
+  'VIRTUAL_SERVER',
+  'APPLICATION',
+  'MICROSERVICE',
+  'CAMERA',
+  'UPS',
+  'POWER_CLIMATE',
+  'OTHER',
+] as const;
+
 export const ipAddressSchema = z.object({
   address: z
     .string()
@@ -127,6 +161,14 @@ export const ipAddressSchema = z.object({
     .enum(['AVAILABLE', 'ASSIGNED', 'RESERVED', 'BLOCKED'])
     .default('AVAILABLE'),
   description: z.string().max(500, 'Description is too long').optional(),
+  branch: z.enum(BRANCH_VALUES).optional(),
+  responsibleParty: z
+    .string()
+    .max(255, 'Responsible party is too long')
+    .optional(),
+  purpose: z.string().max(255, 'Purpose is too long').optional(),
+  deviceType: z.enum(DEVICE_TYPE_VALUES).optional(),
+  basis: z.string().max(500, 'Basis is too long').optional(),
 });
 
 export type IpAddressValues = z.infer<typeof ipAddressSchema>;

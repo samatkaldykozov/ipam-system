@@ -40,6 +40,8 @@ import {
   updateIpAddress,
 } from '@/app/(app)/ip-addresses/actions';
 import {
+  BRANCH_OPTIONS,
+  DEVICE_TYPE_OPTIONS,
   IP_STATUSES,
   type IpAddressWithNetwork,
   type NetworkOption,
@@ -59,6 +61,11 @@ const EMPTY: IpAddressValues = {
   networkId: '',
   status: 'ASSIGNED',
   description: '',
+  branch: undefined,
+  responsibleParty: '',
+  purpose: '',
+  deviceType: undefined,
+  basis: '',
 };
 
 export function AssignIpDialog({
@@ -104,6 +111,11 @@ export function AssignIpDialog({
           networkId: ipAddress.networkId,
           status: ipAddress.status,
           description: ipAddress.description ?? '',
+          branch: ipAddress.branch ?? undefined,
+          responsibleParty: ipAddress.responsibleParty ?? '',
+          purpose: ipAddress.purpose ?? '',
+          deviceType: ipAddress.deviceType ?? undefined,
+          basis: ipAddress.basis ?? '',
         });
       } else {
         form.reset(EMPTY);
@@ -244,6 +256,117 @@ export function AssignIpDialog({
                 )}
               />
             </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="branch"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Филиал</FormLabel>
+                    <Select
+                      value={field.value ?? 'none'}
+                      onValueChange={(v) =>
+                        field.onChange(v === 'none' ? undefined : v)
+                      }
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Не выбран" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">Не выбран</SelectItem>
+                        {BRANCH_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="deviceType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Тип устройства</FormLabel>
+                    <Select
+                      value={field.value ?? 'none'}
+                      onValueChange={(v) =>
+                        field.onChange(v === 'none' ? undefined : v)
+                      }
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Не выбран" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">Не выбран</SelectItem>
+                        {DEVICE_TYPE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="responsibleParty"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ответственное подразделение/Пользователь</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Отдел или ФИО" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="purpose"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Назначение</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Для чего используется" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="basis"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Основание</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="Заявка, служебная записка и т.п."
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}
