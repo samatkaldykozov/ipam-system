@@ -237,6 +237,40 @@ export async function checkIpAddressKnown(address: string): Promise<boolean> {
   return !!found;
 }
 
+export interface IpAddressSuggestion {
+  address: string;
+  hostname: string | null;
+  networkLabel: string;
+}
+
+// Prefix search over real IPAM addresses, used to power the autocomplete
+// dropdown under a `validateAsIp` field — purely a UI convenience, still
+// stores the field value as plain text either way (see checkIpAddressKnown
+// above for the accompanying advisory check).
+export async function searchIpAddresses(
+  prefix: string,
+): Promise<IpAddressSuggestion[]> {
+  const currentUser = await requirePassportEditor();
+  if (!currentUser) return [];
+  const trimmed = prefix.trim();
+  if (!trimmed) return [];
+  const found = await prisma.ipAddress.findMany({
+    where: { address: { startsWith: trimmed } },
+    select: {
+      address: true,
+      hostname: true,
+      network: { select: { name: true, cidr: true } },
+    },
+    orderBy: { address: 'asc' },
+    take: 8,
+  });
+  return found.map((ip) => ({
+    address: ip.address,
+    hostname: ip.hostname,
+    networkLabel: `${ip.network.name} (${ip.network.cidr})`,
+  }));
+}
+
 // ─────────────────────────────────────────────
 // Create / update / delete
 //

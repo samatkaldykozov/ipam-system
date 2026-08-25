@@ -31,12 +31,14 @@ import {
   createPassport,
   updatePassport,
   checkIpAddressKnown,
+  searchIpAddresses,
 } from '@/app/(app)/passports/actions';
 import type {
   ObjectTypeForFill,
   PassportUserOption,
   PassportWithFields,
 } from '@/app/(app)/passports/types';
+import type { IpAddressSuggestion } from '@/app/(app)/passports/actions';
 import type { TableColumnDef } from '@/app/(app)/object-types/types';
 
 interface PassportFormProps {
@@ -296,15 +298,17 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                 ) : null}
 
                 {field.type === 'TEXT' ? (
-                  <>
+                  field.validateAsIp ? (
+                    <IpAddressField
+                      value={(values[field.key] as string) ?? ''}
+                      onChange={(v) => setFieldValue(field.key, v)}
+                    />
+                  ) : (
                     <Input
                       value={(values[field.key] as string) ?? ''}
                       onChange={(e) => setFieldValue(field.key, e.target.value)}
                     />
-                    {field.validateAsIp ? (
-                      <IpAddressHint value={(values[field.key] as string) ?? ''} />
-                    ) : null}
-                  </>
+                  )
                 ) : field.type === 'LONG_TEXT' ? (
                   <Textarea
                     rows={4}
@@ -454,42 +458,105 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
 }
 
 // ─────────────────────────────────────────────
-// Soft "Это IP-адрес" check — see FieldDefinition.validateAsIp in
-// schema.prisma. Debounced, non-blocking: only ever shows an advisory
-// warning under the field, never prevents saving the passport. Isolated
-// into its own component (rather than a shared dictionary of per-field
-// timers on PassportForm) so each field's debounce/effect is independent.
+// Soft "Это IP-адрес" field — see FieldDefinition.validateAsIp in
+// schema.prisma. Two debounced, non-blocking helpers layered on a plain
+// text input:
+//   - an autocomplete dropdown suggesting real addresses from IPAM that
+//     start with what's typed (click/select fills the field);
+//   - an advisory warning under the field when the typed value doesn't
+//     match any known address — never prevents saving the passport.
+// The field's stored value is still plain text either way (see
+// checkIpAddressKnown/searchIpAddresses in actions.ts). Isolated into its
+// own component (rather than a shared dictionary of per-field timers on
+// PassportForm) so each field's debounce/effect is independent.
 // ─────────────────────────────────────────────
 
-function IpAddressHint({ value }: { value: string }) {
+function IpAddressField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
   const [status, setStatus] = React.useState<
     'idle' | 'checking' | 'known' | 'unknown'
   >('idle');
+  const [suggestions, setSuggestions] = React.useState<IpAddressSuggestion[]>(
+    [],
+  );
+  const [focused, setFocused] = React.useState(false);
 
   React.useEffect(() => {
     const trimmed = value.trim();
     if (!trimmed) {
       setStatus('idle');
+      setSuggestions([]);
       return;
     }
     setStatus('checking');
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const known = await checkIpAddressKnown(trimmed);
-      if (!cancelled) setStatus(known ? 'known' : 'unknown');
-    }, 500);
+      const [known, found] = await Promise.all([
+        checkIpAddressKnown(trimmed),
+        searchIpAddresses(trimmed),
+      ]);
+      if (cancelled) return;
+      setStatus(known ? 'known' : 'unknown');
+      setSuggestions(found);
+    }, 400);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
   }, [value]);
 
-  if (status !== 'unknown') return null;
+  // Nothing useful to suggest once the field already exactly matches the
+  // one known address — hide the dropdown rather than "suggesting" what's
+  // already typed (this is also what makes it close right after a click).
+  const trimmedValue = value.trim();
+  const relevantSuggestions =
+    suggestions.length === 1 && suggestions[0].address === trimmedValue
+      ? []
+      : suggestions;
+  const showDropdown = focused && relevantSuggestions.length > 0;
 
   return (
-    <p className="text-xs text-amber-600">
-      Такого IP-адреса нет в IPAM — проверьте значение (сохранить всё равно можно).
-    </p>
+    <div className="relative">
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        autoComplete="off"
+      />
+      {showDropdown ? (
+        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border bg-popover shadow-md">
+          {relevantSuggestions.map((s) => (
+            <button
+              key={s.address}
+              type="button"
+              className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm hover:bg-accent"
+              onMouseDown={(e) => {
+                // onMouseDown (not onClick) so this fires before the
+                // input's onBlur would otherwise close the dropdown first.
+                e.preventDefault();
+                onChange(s.address);
+              }}
+            >
+              <span className="font-medium">{s.address}</span>
+              <span className="text-xs text-muted-foreground">
+                {[s.hostname, s.networkLabel].filter(Boolean).join(' · ')}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {status === 'unknown' ? (
+        <p className="mt-1.5 text-xs text-amber-600">
+          Такого IP-адреса нет в IPAM — проверьте значение (сохранить всё равно можно).
+        </p>
+      ) : null}
+    </div>
   );
 }
 
