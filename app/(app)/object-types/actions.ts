@@ -265,6 +265,7 @@ type FieldDefinitionInput = {
   visibleRoleIds: string[];
   options: string[];
   tableColumns: { key: string; label: string; type: string }[];
+  validateAsIp: boolean;
 };
 
 // Returns the `order` value a field should be placed right after, so it
@@ -372,6 +373,7 @@ export async function createFieldDefinition(
           order: insertAfterOrder + 1,
           required: data.required,
           visibleToAll: data.visibleToAll,
+          validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
           options:
             data.type === 'SELECT'
               ? (data.options as Prisma.InputJsonValue)
@@ -477,6 +479,7 @@ export async function updateFieldDefinition(
           type: data.type as FieldType,
           required: data.required,
           visibleToAll: data.visibleToAll,
+          validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
           options:
             data.type === 'SELECT'
               ? (data.options as Prisma.InputJsonValue)

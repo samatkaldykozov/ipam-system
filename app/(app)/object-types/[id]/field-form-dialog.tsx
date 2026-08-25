@@ -60,6 +60,7 @@ type FormValues = {
   visibleRoleIds: string[];
   options: { value: string }[];
   tableColumns: { key: string; label: string; type: TableColumnType }[];
+  validateAsIp: boolean;
 };
 
 const EMPTY: FormValues = {
@@ -73,6 +74,7 @@ const EMPTY: FormValues = {
   visibleRoleIds: [],
   options: [],
   tableColumns: [],
+  validateAsIp: false,
 };
 
 export function FieldFormDialog({
@@ -123,6 +125,7 @@ export function FieldFormDialog({
               type: TableColumnType;
             }[])
           : [],
+        validateAsIp: field.validateAsIp,
       });
     } else {
       reset(EMPTY);
@@ -170,6 +173,7 @@ export function FieldFormDialog({
       visibleRoleIds: values.visibleToAll ? [] : values.visibleRoleIds,
       options,
       tableColumns,
+      validateAsIp: values.type === 'TEXT' ? values.validateAsIp : false,
     };
 
     setSubmitting(true);
@@ -311,6 +315,28 @@ export function FieldFormDialog({
               )}
             />
           </div>
+
+          {type === 'TEXT' ? (
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label>Это IP-адрес</Label>
+                <p className="text-xs text-muted-foreground">
+                  При заполнении паспорта введённое значение сверяется со
+                  списком IP-адресов в IPAM — если адреса там нет, рядом с
+                  полем покажется предупреждение. Само значение
+                  по-прежнему хранится как текст, сохранить паспорт можно
+                  и с адресом, которого нет в IPAM.
+                </p>
+              </div>
+              <Controller
+                control={control}
+                name="validateAsIp"
+                render={({ field: f }) => (
+                  <Switch checked={f.value} onCheckedChange={f.onChange} />
+                )}
+              />
+            </div>
+          ) : null}
 
           {type === 'SELECT' ? (
             <div className="space-y-2 rounded-md border p-3">

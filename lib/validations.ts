@@ -204,6 +204,9 @@ export const fieldDefinitionSchema = z
     visibleRoleIds: z.array(z.string()).default([]),
     options: z.array(z.string().min(1)).default([]),
     tableColumns: z.array(tableColumnSchema).default([]),
+    // Soft IP-address validation flag — only meaningful for TEXT fields; see
+    // the FieldDefinition.validateAsIp comment in schema.prisma.
+    validateAsIp: z.boolean().default(false),
   })
   .refine((data) => data.type !== 'SELECT' || data.options.length > 0, {
     message: 'Add at least one option',

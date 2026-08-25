@@ -267,6 +267,15 @@ model FieldDefinition {
   // from `label` so labels can stay short while longer explanations live
   // here instead of being crammed into the label in parentheses.
   helpText     String?   @map("help_text")
+  // Only meaningful for TEXT fields the admin has marked as holding an IP
+  // address (e.g. "Хост-IP"). This is deliberately a soft, advisory check,
+  // not a real link: the value is still plain text in `values` jsonb, not a
+  // foreign key to IpAddress — see docs/it-passports-design.md section 6.3
+  // ("мягкая валидация") for why a full IP_REFERENCE field type was
+  // intentionally deferred in favor of this lighter first step. The fill
+  // form uses this flag to look up whether the typed value matches an
+  // existing IpAddress and shows a non-blocking warning if it doesn't.
+  validateAsIp Boolean   @default(false) @map("validate_as_ip")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

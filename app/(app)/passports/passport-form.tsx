@@ -27,7 +27,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { createPassport, updatePassport } from '@/app/(app)/passports/actions';
+import {
+  createPassport,
+  updatePassport,
+  checkIpAddressKnown,
+} from '@/app/(app)/passports/actions';
 import type {
   ObjectTypeForFill,
   PassportUserOption,
@@ -292,10 +296,15 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                 ) : null}
 
                 {field.type === 'TEXT' ? (
-                  <Input
-                    value={(values[field.key] as string) ?? ''}
-                    onChange={(e) => setFieldValue(field.key, e.target.value)}
-                  />
+                  <>
+                    <Input
+                      value={(values[field.key] as string) ?? ''}
+                      onChange={(e) => setFieldValue(field.key, e.target.value)}
+                    />
+                    {field.validateAsIp ? (
+                      <IpAddressHint value={(values[field.key] as string) ?? ''} />
+                    ) : null}
+                  </>
                 ) : field.type === 'LONG_TEXT' ? (
                   <Textarea
                     rows={4}
@@ -441,6 +450,46 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
         </Button>
       </div>
     </form>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Soft "Это IP-адрес" check — see FieldDefinition.validateAsIp in
+// schema.prisma. Debounced, non-blocking: only ever shows an advisory
+// warning under the field, never prevents saving the passport. Isolated
+// into its own component (rather than a shared dictionary of per-field
+// timers on PassportForm) so each field's debounce/effect is independent.
+// ─────────────────────────────────────────────
+
+function IpAddressHint({ value }: { value: string }) {
+  const [status, setStatus] = React.useState<
+    'idle' | 'checking' | 'known' | 'unknown'
+  >('idle');
+
+  React.useEffect(() => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setStatus('idle');
+      return;
+    }
+    setStatus('checking');
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const known = await checkIpAddressKnown(trimmed);
+      if (!cancelled) setStatus(known ? 'known' : 'unknown');
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [value]);
+
+  if (status !== 'unknown') return null;
+
+  return (
+    <p className="text-xs text-amber-600">
+      Такого IP-адреса нет в IPAM — проверьте значение (сохранить всё равно можно).
+    </p>
   );
 }
 

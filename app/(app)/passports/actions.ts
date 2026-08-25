@@ -218,6 +218,25 @@ export async function getPassportUsers() {
   });
 }
 
+// Backs the soft "Это IP-адрес" check on TEXT fields (see
+// FieldDefinition.validateAsIp in schema.prisma) — the fill form calls this
+// per field, debounced, to show a non-blocking warning when the typed value
+// doesn't match any address in IPAM. Deliberately advisory only: this never
+// blocks saving a passport, and `address` isn't otherwise normalized here,
+// so it relies on the same plain-string comparison IpAddress.address is
+// already stored as (@unique, so this is a single indexed lookup).
+export async function checkIpAddressKnown(address: string): Promise<boolean> {
+  const currentUser = await requirePassportEditor();
+  if (!currentUser) return true; // no session — don't surface a false warning
+  const trimmed = address.trim();
+  if (!trimmed) return true;
+  const found = await prisma.ipAddress.findUnique({
+    where: { address: trimmed },
+    select: { id: true },
+  });
+  return !!found;
+}
+
 // ─────────────────────────────────────────────
 // Create / update / delete
 //
