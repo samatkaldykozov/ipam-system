@@ -262,6 +262,11 @@ model FieldDefinition {
   tableColumns Json?     @map("table_columns")
   // Fixed list of choices for SELECT-type fields only: string[] as JSON.
   options      Json?     @map("options")
+  // Optional short guidance shown next to the field while filling a
+  // passport (e.g. what format is expected, an example value) — separate
+  // from `label` so labels can stay short while longer explanations live
+  // here instead of being crammed into the label in parentheses.
+  helpText     String?   @map("help_text")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

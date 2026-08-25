@@ -258,6 +258,7 @@ type FieldDefinitionInput = {
   sectionName?: string;
   key: string;
   label: string;
+  helpText?: string;
   type: FieldType;
   required: boolean;
   visibleToAll: boolean;
@@ -315,6 +316,7 @@ export async function createFieldDefinition(
         sectionName: data.sectionName || null,
         key: data.key,
         label: data.label,
+        helpText: data.helpText || null,
         type: data.type as FieldType,
         order: nextOrder,
         required: data.required,
@@ -393,6 +395,7 @@ export async function updateFieldDefinition(
           sectionName: data.sectionName || null,
           key: data.key,
           label: data.label,
+          helpText: data.helpText || null,
           type: data.type as FieldType,
           required: data.required,
           visibleToAll: data.visibleToAll,

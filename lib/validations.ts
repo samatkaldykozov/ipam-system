@@ -197,6 +197,7 @@ export const fieldDefinitionSchema = z
       .max(60, 'Key is too long')
       .regex(fieldKeyRegex, 'Lowercase letters, numbers, underscores only'),
     label: z.string().min(1, 'Label is required').max(200, 'Label is too long'),
+    helpText: z.string().max(1000, 'Help text is too long').optional(),
     type: z.enum(FIELD_DEFINITION_TYPES),
     required: z.boolean().default(false),
     visibleToAll: z.boolean().default(true),

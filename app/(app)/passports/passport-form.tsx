@@ -276,12 +276,19 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
             {group.fields.map((field) => (
               <div key={field.id} className="space-y-1.5">
                 {field.type !== 'BOOLEAN' && field.type !== 'TABLE' ? (
-                  <Label>
-                    {field.label}
-                    {field.required ? (
-                      <span className="text-destructive"> *</span>
+                  <>
+                    <Label>
+                      {field.label}
+                      {field.required ? (
+                        <span className="text-destructive"> *</span>
+                      ) : null}
+                    </Label>
+                    {field.helpText ? (
+                      <p className="text-xs text-muted-foreground">
+                        {field.helpText}
+                      </p>
                     ) : null}
-                  </Label>
+                  </>
                 ) : null}
 
                 {field.type === 'TEXT' ? (
@@ -329,12 +336,19 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                   </Select>
                 ) : field.type === 'BOOLEAN' ? (
                   <div className="flex items-center justify-between rounded-md border p-3">
-                    <Label>
-                      {field.label}
-                      {field.required ? (
-                        <span className="text-destructive"> *</span>
+                    <div className="space-y-0.5">
+                      <Label>
+                        {field.label}
+                        {field.required ? (
+                          <span className="text-destructive"> *</span>
+                        ) : null}
+                      </Label>
+                      {field.helpText ? (
+                        <p className="text-xs text-muted-foreground">
+                          {field.helpText}
+                        </p>
                       ) : null}
-                    </Label>
+                    </div>
                     <Switch
                       checked={(values[field.key] as boolean) ?? false}
                       onCheckedChange={(v) => setFieldValue(field.key, v)}
@@ -343,6 +357,7 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                 ) : field.type === 'TABLE' ? (
                   <TableFieldEditor
                     label={field.label}
+                    helpText={field.helpText}
                     columns={getTableColumns(field.tableColumns)}
                     rows={tableRows[field.key] ?? []}
                     onAddRow={(columns) => addTableRow(field.key, columns)}
@@ -435,6 +450,7 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
 
 interface TableFieldEditorProps {
   label: string;
+  helpText?: string | null;
   columns: TableColumnDef[];
   rows: TableRowState[];
   onAddRow: (columns: TableColumnDef[]) => void;
@@ -444,6 +460,7 @@ interface TableFieldEditorProps {
 
 function TableFieldEditor({
   label,
+  helpText,
   columns,
   rows,
   onAddRow,
@@ -453,7 +470,12 @@ function TableFieldEditor({
   return (
     <div className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between">
-        <Label>{label}</Label>
+        <div className="space-y-0.5">
+          <Label>{label}</Label>
+          {helpText ? (
+            <p className="text-xs text-muted-foreground">{helpText}</p>
+          ) : null}
+        </div>
         <Button
           type="button"
           variant="outline"

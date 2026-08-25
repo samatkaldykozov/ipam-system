@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
@@ -52,6 +53,7 @@ type FormValues = {
   sectionName: string;
   key: string;
   label: string;
+  helpText: string;
   type: FieldTypeValue;
   required: boolean;
   visibleToAll: boolean;
@@ -64,6 +66,7 @@ const EMPTY: FormValues = {
   sectionName: '',
   key: '',
   label: '',
+  helpText: '',
   type: 'TEXT',
   required: false,
   visibleToAll: true,
@@ -105,6 +108,7 @@ export function FieldFormDialog({
         sectionName: field.sectionName ?? '',
         key: field.key,
         label: field.label,
+        helpText: field.helpText ?? '',
         type: field.type as FieldTypeValue,
         required: field.required,
         visibleToAll: field.visibleToAll,
@@ -159,6 +163,7 @@ export function FieldFormDialog({
       sectionName: values.sectionName.trim() || undefined,
       key,
       label,
+      helpText: values.helpText.trim() || undefined,
       type: values.type,
       required: values.required,
       visibleToAll: values.visibleToAll,
@@ -273,6 +278,16 @@ export function FieldFormDialog({
                 {formState.errors.key.message}
               </p>
             ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="field-help-text">Подсказка</Label>
+            <Textarea
+              id="field-help-text"
+              rows={2}
+              placeholder="Необязательно — пояснение или пример, которые увидит тот, кто заполняет паспорт"
+              {...register('helpText')}
+            />
           </div>
 
           <div className="space-y-1.5">
