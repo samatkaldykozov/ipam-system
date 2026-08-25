@@ -56,6 +56,8 @@ import {
   importIpAddressesCsv,
 } from '@/app/(app)/ip-addresses/csv-actions';
 import {
+  branchLabel,
+  deviceTypeLabel,
   STATUS_OPTIONS,
   statusBadgeVariant,
   type IpAddressWithNetwork,
@@ -301,6 +303,8 @@ export function IpAddressesTable({
                 </TableHead>
                 <TableHead>MAC Address</TableHead>
                 <TableHead>Network</TableHead>
+                <TableHead>Филиал</TableHead>
+                <TableHead>Тип устройства</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="max-w-[200px]">Description</TableHead>
                 <TableHead>
@@ -334,6 +338,16 @@ export function IpAddressesTable({
                         {ip.network.name}
                       </span>
                     </span>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {branchLabel(ip.branch) ?? (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {deviceTypeLabel(ip.deviceType) ?? (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusBadgeVariant(ip.status)}>
@@ -468,7 +482,7 @@ export function IpAddressesTable({
         onOpenChange={setImportOpen}
         title="Import IP Addresses"
         description="Bulk-create or update IP addresses from a CSV file."
-        columnsHint="address, hostname, macAddress, status, description, networkCidr"
+        columnsHint="address, hostname, macAddress, status, description, networkCidr, branch, responsibleParty, purpose, deviceType, basis"
         onImport={importIpAddressesCsv}
       />
     </div>
