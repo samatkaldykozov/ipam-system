@@ -267,6 +267,47 @@ type FieldDefinitionInput = {
   tableColumns: { key: string; label: string; type: string }[];
 };
 
+// Returns the `order` value a field should be placed right after, so it
+// lands adjacent to its section's other fields (or at the very end of the
+// type, for a brand-new section or no section at all).
+//
+// This matters because `order` is one flat, type-wide sequence — not
+// per-section — and the builder UI (fields-builder.tsx's groupBySection)
+// only merges fields into one visual group when they're *contiguous* in
+// that sequence with the same sectionName. A field that shares a section's
+// name but isn't next to that section's other fields renders as a second,
+// separate group with the same title further down the list — which is
+// exactly what happens if a new field is simply appended to the very end
+// (the old behavior here), and the admin picked a section that isn't the
+// last one in the list.
+async function nextOrderForSection(
+  objectTypeId: string,
+  sectionName: string | null,
+  excludeFieldId?: string,
+) {
+  if (sectionName) {
+    const lastInSection = await prisma.fieldDefinition.findFirst({
+      where: {
+        objectTypeId,
+        sectionName,
+        ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+      },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    });
+    if (lastInSection) return lastInSection.order;
+  }
+  const last = await prisma.fieldDefinition.findFirst({
+    where: {
+      objectTypeId,
+      ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+    },
+    orderBy: { order: 'desc' },
+    select: { order: true },
+  });
+  return last?.order ?? -1;
+}
+
 export async function createFieldDefinition(
   objectTypeId: string,
   values: FieldDefinitionInput,
@@ -301,39 +342,50 @@ export async function createFieldDefinition(
     };
   }
 
-  // New fields go to the end of the (flat, type-wide) order sequence.
-  const last = await prisma.fieldDefinition.findFirst({
-    where: { objectTypeId },
-    orderBy: { order: 'desc' },
-    select: { order: true },
-  });
-  const nextOrder = (last?.order ?? -1) + 1;
+  // Place the new field right after the last existing field of the same
+  // section (or at the very end, for a new section) — see
+  // nextOrderForSection above for why this has to account for section
+  // membership rather than always appending to the end.
+  const normalizedSection = data.sectionName || null;
+  const insertAfterOrder = await nextOrderForSection(
+    objectTypeId,
+    normalizedSection,
+  );
 
   try {
-    const field = await prisma.fieldDefinition.create({
-      data: {
-        objectTypeId,
-        sectionName: data.sectionName || null,
-        key: data.key,
-        label: data.label,
-        helpText: data.helpText || null,
-        type: data.type as FieldType,
-        order: nextOrder,
-        required: data.required,
-        visibleToAll: data.visibleToAll,
-        options:
-          data.type === 'SELECT'
-            ? (data.options as Prisma.InputJsonValue)
-            : undefined,
-        tableColumns:
-          data.type === 'TABLE'
-            ? (data.tableColumns as Prisma.InputJsonValue)
-            : undefined,
-        visibleRoles: data.visibleToAll
-          ? undefined
-          : { create: data.visibleRoleIds.map((roleId) => ({ roleId })) },
-      },
-    });
+    // Shift every field after the insertion point up by one to make room,
+    // then create the new field in the freed slot — both in one
+    // transaction so the sequence never has two fields sharing an order.
+    const [, field] = await prisma.$transaction([
+      prisma.fieldDefinition.updateMany({
+        where: { objectTypeId, order: { gt: insertAfterOrder } },
+        data: { order: { increment: 1 } },
+      }),
+      prisma.fieldDefinition.create({
+        data: {
+          objectTypeId,
+          sectionName: normalizedSection,
+          key: data.key,
+          label: data.label,
+          helpText: data.helpText || null,
+          type: data.type as FieldType,
+          order: insertAfterOrder + 1,
+          required: data.required,
+          visibleToAll: data.visibleToAll,
+          options:
+            data.type === 'SELECT'
+              ? (data.options as Prisma.InputJsonValue)
+              : undefined,
+          tableColumns:
+            data.type === 'TABLE'
+              ? (data.tableColumns as Prisma.InputJsonValue)
+              : undefined,
+          visibleRoles: data.visibleToAll
+            ? undefined
+            : { create: data.visibleRoleIds.map((roleId) => ({ roleId })) },
+        },
+      }),
+    ]);
     await writeAudit('CREATE', 'FieldDefinition', field.id, currentUser.id, {
       objectTypeId,
       key: field.key,
@@ -384,15 +436,41 @@ export async function updateFieldDefinition(
     }
   }
 
+  // Only reposition the field if its section is actually changing — normal
+  // edits (label, type, options, …) that keep the same section shouldn't
+  // touch `order` at all. When the section does change, the field needs to
+  // move next to its new section's other fields for the same reason
+  // described on nextOrderForSection above — otherwise it renders as a
+  // stray one-field group wherever it happened to sit before.
+  const normalizedSection = data.sectionName || null;
+  const sectionChanged = normalizedSection !== existing.sectionName;
+  const insertAfterOrder = sectionChanged
+    ? await nextOrderForSection(existing.objectTypeId, normalizedSection, fieldId)
+    : null;
+
   try {
     // FieldVisibility rows are replaced wholesale rather than diffed —
     // simpler, and the set is small (a handful of Passport-scope roles).
-    await prisma.$transaction([
+    const ops: Prisma.PrismaPromise<unknown>[] = [
       prisma.fieldVisibility.deleteMany({ where: { fieldDefinitionId: fieldId } }),
+    ];
+    if (insertAfterOrder !== null) {
+      ops.push(
+        prisma.fieldDefinition.updateMany({
+          where: {
+            objectTypeId: existing.objectTypeId,
+            order: { gt: insertAfterOrder },
+            id: { not: fieldId },
+          },
+          data: { order: { increment: 1 } },
+        }),
+      );
+    }
+    ops.push(
       prisma.fieldDefinition.update({
         where: { id: fieldId },
         data: {
-          sectionName: data.sectionName || null,
+          sectionName: normalizedSection,
           key: data.key,
           label: data.label,
           helpText: data.helpText || null,
@@ -410,9 +488,11 @@ export async function updateFieldDefinition(
           visibleRoles: data.visibleToAll
             ? undefined
             : { create: data.visibleRoleIds.map((roleId) => ({ roleId })) },
+          ...(insertAfterOrder !== null ? { order: insertAfterOrder + 1 } : {}),
         },
       }),
-    ]);
+    );
+    await prisma.$transaction(ops);
     await writeAudit('UPDATE', 'FieldDefinition', fieldId, currentUser.id, {
       key: data.key,
       label: data.label,
