@@ -223,6 +223,9 @@ export const tableColumnSchema = z.object({
     .regex(fieldKeyRegex, 'Lowercase letters, numbers, underscores only'),
   label: z.string().min(1, 'Column label is required'),
   type: z.enum(TABLE_COLUMN_TYPES),
+  // Same soft IP-address check as FieldDefinition.validateAsIp, scoped to
+  // one column of a TABLE field — only meaningful when type is 'TEXT'.
+  validateAsIp: z.boolean().default(false),
 });
 
 // Server-side shape for creating/updating one FieldDefinition. The admin

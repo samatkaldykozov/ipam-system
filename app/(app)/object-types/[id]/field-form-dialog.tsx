@@ -59,7 +59,12 @@ type FormValues = {
   visibleToAll: boolean;
   visibleRoleIds: string[];
   options: { value: string }[];
-  tableColumns: { key: string; label: string; type: TableColumnType }[];
+  tableColumns: {
+    key: string;
+    label: string;
+    type: TableColumnType;
+    validateAsIp: boolean;
+  }[];
   validateAsIp: boolean;
 };
 
@@ -119,11 +124,14 @@ export function FieldFormDialog({
           ? (field.options as string[]).map((value) => ({ value }))
           : [],
         tableColumns: Array.isArray(field.tableColumns)
-          ? (field.tableColumns as {
-              key: string;
-              label: string;
-              type: TableColumnType;
-            }[])
+          ? (
+              field.tableColumns as {
+                key: string;
+                label: string;
+                type: TableColumnType;
+                validateAsIp?: boolean;
+              }[]
+            ).map((c) => ({ ...c, validateAsIp: c.validateAsIp ?? false }))
           : [],
         validateAsIp: field.validateAsIp,
       });
@@ -155,7 +163,12 @@ export function FieldFormDialog({
     }
 
     const tableColumns = values.tableColumns
-      .map((c) => ({ ...c, key: c.key.trim(), label: c.label.trim() }))
+      .map((c) => ({
+        ...c,
+        key: c.key.trim(),
+        label: c.label.trim(),
+        validateAsIp: c.type === 'TEXT' ? c.validateAsIp : false,
+      }))
       .filter((c) => c.key && c.label);
     if (values.type === 'TABLE' && tableColumns.length === 0) {
       toast.error('Добавьте хотя бы один столбец таблицы');
@@ -373,78 +386,101 @@ export function FieldFormDialog({
           {type === 'TABLE' ? (
             <div className="space-y-2 rounded-md border p-3">
               <Label>Столбцы таблицы</Label>
-              {columnsArray.fields.map((f, index) => (
-                <div
-                  key={f.id}
-                  className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2"
-                >
-                  <Controller
-                    control={control}
-                    name={`tableColumns.${index}.label` as const}
-                    render={({ field: f2 }) => (
-                      <Input
-                        placeholder="Подпись"
-                        value={f2.value}
-                        onChange={(e) => {
-                          f2.onChange(e.target.value);
-                          // Read/write the whole array through the static
-                          // 'tableColumns' path rather than a dynamic
-                          // `tableColumns.${index}.key` one — keeps this
-                          // fully typed without leaning on react-hook-form's
-                          // template-literal path inference.
-                          const columns = getValues('tableColumns');
-                          if (!columns[index]?.key) {
-                            const next = [...columns];
-                            next[index] = {
-                              ...next[index],
-                              key: slugify(e.target.value),
-                            };
-                            setValue('tableColumns', next);
-                          }
-                        }}
+              {columnsArray.fields.map((f, index) => {
+                const columnType = watch(`tableColumns.${index}.type`);
+                return (
+                  <div key={f.id} className="space-y-1.5 rounded-md border p-2">
+                    <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2">
+                      <Controller
+                        control={control}
+                        name={`tableColumns.${index}.label` as const}
+                        render={({ field: f2 }) => (
+                          <Input
+                            placeholder="Подпись"
+                            value={f2.value}
+                            onChange={(e) => {
+                              f2.onChange(e.target.value);
+                              // Read/write the whole array through the static
+                              // 'tableColumns' path rather than a dynamic
+                              // `tableColumns.${index}.key` one — keeps this
+                              // fully typed without leaning on react-hook-form's
+                              // template-literal path inference.
+                              const columns = getValues('tableColumns');
+                              if (!columns[index]?.key) {
+                                const next = [...columns];
+                                next[index] = {
+                                  ...next[index],
+                                  key: slugify(e.target.value),
+                                };
+                                setValue('tableColumns', next);
+                              }
+                            }}
+                          />
+                        )}
                       />
-                    )}
-                  />
-                  <Input
-                    placeholder="ключ"
-                    className="font-mono text-sm"
-                    {...register(`tableColumns.${index}.key` as const)}
-                  />
-                  <Controller
-                    control={control}
-                    name={`tableColumns.${index}.type` as const}
-                    render={({ field: f2 }) => (
-                      <Select value={f2.value} onValueChange={f2.onChange}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {TABLE_COLUMN_TYPES.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {FIELD_TYPE_LABELS[t]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => columnsArray.remove(index)}
-                  >
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">Удалить столбец</span>
-                  </Button>
-                </div>
-              ))}
+                      <Input
+                        placeholder="ключ"
+                        className="font-mono text-sm"
+                        {...register(`tableColumns.${index}.key` as const)}
+                      />
+                      <Controller
+                        control={control}
+                        name={`tableColumns.${index}.type` as const}
+                        render={({ field: f2 }) => (
+                          <Select value={f2.value} onValueChange={f2.onChange}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TABLE_COLUMN_TYPES.map((t) => (
+                                <SelectItem key={t} value={t}>
+                                  {FIELD_TYPE_LABELS[t]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => columnsArray.remove(index)}
+                      >
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Удалить столбец</span>
+                      </Button>
+                    </div>
+                    {columnType === 'TEXT' ? (
+                      <label className="flex items-center gap-2 pl-0.5 text-xs text-muted-foreground">
+                        <Controller
+                          control={control}
+                          name={`tableColumns.${index}.validateAsIp` as const}
+                          render={({ field: f2 }) => (
+                            <Switch
+                              checked={f2.value}
+                              onCheckedChange={f2.onChange}
+                              className="scale-75"
+                            />
+                          )}
+                        />
+                        Это IP-адрес — сверять со списком IPAM при заполнении
+                      </label>
+                    ) : null}
+                  </div>
+                );
+              })}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  columnsArray.append({ key: '', label: '', type: 'TEXT' })
+                  columnsArray.append({
+                    key: '',
+                    label: '',
+                    type: 'TEXT',
+                    validateAsIp: false,
+                  })
                 }
               >
                 <Plus className="mr-2 h-3.5 w-3.5" />

@@ -643,6 +643,11 @@ function TableFieldEditor({
                             onCellChange(index, col.key, e.target.value)
                           }
                         />
+                      ) : col.type === 'TEXT' && col.validateAsIp ? (
+                        <IpAddressField
+                          value={row[col.key] ?? ''}
+                          onChange={(v) => onCellChange(index, col.key, v)}
+                        />
                       ) : (
                         <Input
                           value={row[col.key] ?? ''}

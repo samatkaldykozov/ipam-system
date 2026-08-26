@@ -264,7 +264,12 @@ type FieldDefinitionInput = {
   visibleToAll: boolean;
   visibleRoleIds: string[];
   options: string[];
-  tableColumns: { key: string; label: string; type: string }[];
+  tableColumns: {
+    key: string;
+    label: string;
+    type: string;
+    validateAsIp: boolean;
+  }[];
   validateAsIp: boolean;
 };
 

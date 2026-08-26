@@ -25,6 +25,11 @@ export type TableColumnDef = {
   key: string;
   label: string;
   type: TableColumnType;
+  // Soft IP-address check for this column, same idea as
+  // FieldDefinition.validateAsIp — only meaningful when type is 'TEXT'.
+  // Optional so older stored tableColumns JSON without this key still
+  // types fine (treated as false/absent).
+  validateAsIp?: boolean;
 };
 
 export type ObjectTypeWithCounts = ObjectType & {
