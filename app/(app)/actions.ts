@@ -11,6 +11,14 @@ export type DashboardAlert = {
   href: string;
 };
 
+export type LocationBreakdownRow = {
+  id: string | null; // null = networks with no location assigned
+  name: string;
+  code: string | null;
+  networkCount: number;
+  ipCount: number;
+};
+
 const CAPACITY_WARNING_THRESHOLD = 0.9;
 
 // How many trailing months the growth charts cover.
@@ -141,12 +149,69 @@ export async function getDashboardData() {
     return a.severity === 'critical' ? -1 : 1;
   });
 
+  // ─── Networks/IPs by location — derived entirely from the `networks`
+  // and `locations` arrays already fetched above, so this adds zero extra
+  // database round trips (see this function's doc comment on why that
+  // matters — the connection_limit=1 incident from 21 August). Networks
+  // with no location go into a synthetic trailing "no location" row
+  // (id: null) rather than being silently dropped — that's the same gap
+  // the "networks-without-location" alert above already surfaces. ───
+  const byLocationId = new Map<
+    string,
+    { networkCount: number; ipCount: number }
+  >();
+  let noLocationNetworkCount = 0;
+  let noLocationIpCount = 0;
+  for (const n of networks) {
+    if (n.locationId === null) {
+      noLocationNetworkCount += 1;
+      noLocationIpCount += n._count.ipAddresses;
+      continue;
+    }
+    const entry = byLocationId.get(n.locationId) ?? {
+      networkCount: 0,
+      ipCount: 0,
+    };
+    entry.networkCount += 1;
+    entry.ipCount += n._count.ipAddresses;
+    byLocationId.set(n.locationId, entry);
+  }
+
+  const locationBreakdown: LocationBreakdownRow[] = locations
+    .map((l) => {
+      const entry = byLocationId.get(l.id) ?? { networkCount: 0, ipCount: 0 };
+      return {
+        id: l.id,
+        name: l.name,
+        code: l.code,
+        networkCount: entry.networkCount,
+        ipCount: entry.ipCount,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.ipCount - a.ipCount ||
+        b.networkCount - a.networkCount ||
+        a.name.localeCompare(b.name),
+    );
+
+  if (noLocationNetworkCount > 0) {
+    locationBreakdown.push({
+      id: null,
+      name: 'No location',
+      code: null,
+      networkCount: noLocationNetworkCount,
+      ipCount: noLocationIpCount,
+    });
+  }
+
   return {
     totalNetworks: networks.length,
     totalIps: ipAddresses.length,
     statusMap,
     recentActivity,
     alerts,
+    locationBreakdown,
     networksByStatus: [
       { label: 'Active', value: networkStatusMap.ACTIVE },
       { label: 'Reserved', value: networkStatusMap.RESERVED },

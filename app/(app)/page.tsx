@@ -5,6 +5,7 @@ import {
   AlertOctagon,
   AlertTriangle,
   CheckCircle2,
+  MapPin,
   Network,
   Plus,
   Server,
@@ -57,6 +58,7 @@ export default async function DashboardPage() {
       statusMap,
       recentActivity,
       alerts,
+      locationBreakdown,
       networksByStatus,
       ipsByStatus,
       networkGrowth,
@@ -96,6 +98,14 @@ export default async function DashboardPage() {
       variant: 'destructive' as const,
     },
   ];
+
+  // Bar widths in the "By Location" card are relative to the busiest
+  // location, not to totalIps — otherwise a company with many small,
+  // evenly-sized sites would show every bar as a barely-visible sliver.
+  const maxLocationIps = Math.max(
+    1,
+    ...locationBreakdown.map((row) => row.ipCount),
+  );
 
   return (
     <div className="space-y-6">
@@ -305,6 +315,63 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>By Location</CardTitle>
+          <CardDescription>
+            Networks and IP addresses assigned to each location.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {locationBreakdown.length === 0 ? (
+            <EmptyState
+              icon={<MapPin className="h-6 w-6" />}
+              title="No locations yet"
+              description="Add a location to see networks and IP addresses broken down by site."
+            />
+          ) : (
+            <div className="space-y-4">
+              {locationBreakdown.map((row) => {
+                const percent = Math.round(
+                  (row.ipCount / maxLocationIps) * 100,
+                );
+                const rowContent = (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-medium">{row.name}</span>
+                      <span className="text-muted-foreground">
+                        {row.networkCount} network
+                        {row.networkCount === 1 ? '' : 's'} · {row.ipCount} IP
+                        {row.ipCount === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+                return row.code ? (
+                  <Link
+                    key={row.id ?? 'no-location'}
+                    href={`/locations?q=${encodeURIComponent(row.code)}`}
+                    className="-m-2 block rounded-md p-2 transition-colors hover:bg-accent"
+                  >
+                    {rowContent}
+                  </Link>
+                ) : (
+                  <div key={row.id ?? 'no-location'} className="-m-2 p-2">
+                    {rowContent}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
