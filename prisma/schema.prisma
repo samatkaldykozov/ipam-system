@@ -244,6 +244,11 @@ model IpAddress {
   // this proactively for a friendly error, but the DB constraint is the
   // actual guarantee).
   passportLinks FieldIpAddressValue[]
+  // Same guarantee, one level down — table-column cells of type
+  // IP_REFERENCE pointing at this address. See TableCellIpAddressValue
+  // (26 August 2026, extending IP_REFERENCE from regular fields to
+  // TABLE-field columns).
+  tableCellLinks TableCellIpAddressValue[]
 
   @@index([networkId])
   @@index([status])
@@ -451,8 +456,42 @@ model TableFieldRow {
 
   objectInstance  ObjectInstance  @relation(fields: [objectInstanceId], references: [id], onDelete: Cascade)
   fieldDefinition FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  // Real relational mirror of any IP_REFERENCE-typed column's value in
+  // this row's `cells` — see TableCellIpAddressValue below. onDelete:
+  // Cascade here means deleting/recreating this row (the usual
+  // "delete-then-recreate" sync on every passport save — see actions.ts)
+  // automatically cleans up its old links, no manual delete needed.
+  ipAddressLinks TableCellIpAddressValue[]
 
   @@index([objectInstanceId])
   @@index([fieldDefinitionId])
   @@map("table_field_rows")
+}
+
+// ─────────────────────────────────────────────
+// TableCellIpAddressValue — real relational backing for a TABLE column of
+// type IP_REFERENCE (26 August 2026), the table-column counterpart of
+// FieldIpAddressValue above. Same reasoning: the cell's value (an
+// IpAddress id) still lives in TableFieldRow.cells JSON — keeps one
+// read/render/CSV path for every column type — but this table mirrors it
+// for real referential integrity. Scoped to one column of one row rather
+// than one field of one passport, hence a separate model keyed by
+// (tableFieldRowId, columnKey) instead of reusing FieldIpAddressValue's
+// (objectInstanceId, fieldDefinitionId) key.
+// ─────────────────────────────────────────────
+
+model TableCellIpAddressValue {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableFieldRowId String   @map("table_field_row_id") @db.Uuid
+  columnKey       String   @map("column_key")
+  ipAddressId     String   @map("ip_address_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tableFieldRow TableFieldRow @relation(fields: [tableFieldRowId], references: [id], onDelete: Cascade)
+  ipAddress     IpAddress     @relation(fields: [ipAddressId], references: [id], onDelete: Restrict)
+
+  @@unique([tableFieldRowId, columnKey])
+  @@index([ipAddressId])
+  @@map("table_cell_ip_address_values")
 }

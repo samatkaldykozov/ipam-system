@@ -11,10 +11,13 @@ import {
 } from '@/lib/auth';
 import { validatePassportValues } from '@/app/(app)/passports/validate-values';
 import {
+  ipReferenceColumnKeys,
   ipReferenceFields,
   resolveIpAddressLabels,
   syncFieldIpAddressLinks,
+  syncTableCellIpAddressLinks,
   validateIpReferenceValues,
+  validateTableIpReferenceValues,
   type IpAddressRefLabel,
 } from '@/app/(app)/passports/ip-reference-utils';
 
@@ -214,6 +217,41 @@ export async function getPassportView(id: string) {
     visibleFieldIds.has(r.fieldDefinitionId),
   );
 
+  // Same resolution as above, one level down — a TABLE field can have a
+  // column of type IP_REFERENCE (26 August 2026), whose cells also store
+  // a bare IpAddress id.
+  const columnKeysByFieldId = new Map<string, string[]>(
+    visibleFields
+      .filter((f) => f.type === 'TABLE')
+      .map((f) => [f.id, ipReferenceColumnKeys(f)] as const),
+  );
+  const tableRefIds: string[] = [];
+  for (const row of tableRows) {
+    const keys = columnKeysByFieldId.get(row.fieldDefinitionId) ?? [];
+    if (keys.length === 0) continue;
+    const cells = row.cells as unknown as Record<string, unknown>;
+    for (const key of keys) {
+      const v = cells[key];
+      if (typeof v === 'string' && v) tableRefIds.push(v);
+    }
+  }
+  const tableRefLabels =
+    tableRefIds.length > 0
+      ? await resolveIpAddressLabels(tableRefIds)
+      : new Map<string, IpAddressRefLabel>();
+  const resolvedTableRows = tableRows.map((row) => {
+    const keys = columnKeysByFieldId.get(row.fieldDefinitionId) ?? [];
+    if (keys.length === 0) return row;
+    const cells = { ...(row.cells as unknown as Record<string, unknown>) };
+    for (const key of keys) {
+      const v = cells[key];
+      if (typeof v === 'string' && v) {
+        cells[key] = tableRefLabels.get(v)?.address ?? v;
+      }
+    }
+    return { ...row, cells: cells as unknown as typeof row.cells };
+  });
+
   return {
     id: instance.id,
     name: instance.name,
@@ -224,7 +262,7 @@ export async function getPassportView(id: string) {
     },
     fields: visibleFields,
     values,
-    tableRows,
+    tableRows: resolvedTableRows,
     responsible: instance.responsible,
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
@@ -365,19 +403,17 @@ export async function createPassport(
   }
 
   const ipRefFields = ipReferenceFields(objectType.fields);
-  const ipRefErrors = await validateIpReferenceValues(
-    ipRefFields,
-    validated.data.values,
-  );
-  if (Object.keys(ipRefErrors).length > 0) {
-    return { ok: false, fieldErrors: ipRefErrors };
+  const tableFields = objectType.fields.filter((f) => f.type === 'TABLE');
+  const [ipRefErrors, tableIpRefErrors] = await Promise.all([
+    validateIpReferenceValues(ipRefFields, validated.data.values),
+    validateTableIpReferenceValues(tableFields, validated.data.tableRows),
+  ]);
+  const combinedIpRefErrors = { ...ipRefErrors, ...tableIpRefErrors };
+  if (Object.keys(combinedIpRefErrors).length > 0) {
+    return { ok: false, fieldErrors: combinedIpRefErrors };
   }
 
-  const tableFieldByKey = new Map(
-    objectType.fields
-      .filter((f) => f.type === 'TABLE')
-      .map((f) => [f.key, f] as const),
-  );
+  const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
 
   try {
     const instance = await prisma.$transaction(async (tx) => {
@@ -412,6 +448,9 @@ export async function createPassport(
         ipRefFields,
         validated.data.values,
       );
+      // Runs after the table rows above are inserted — needs their real
+      // ids, see syncTableCellIpAddressLinks's doc comment.
+      await syncTableCellIpAddressLinks(tx, created.id, tableFields);
 
       return created;
     });
@@ -468,19 +507,19 @@ export async function updatePassport(
   }
 
   const ipRefFields = ipReferenceFields(existing.objectType.fields);
-  const ipRefErrors = await validateIpReferenceValues(
-    ipRefFields,
-    validated.data.values,
+  const tableFields = existing.objectType.fields.filter(
+    (f) => f.type === 'TABLE',
   );
-  if (Object.keys(ipRefErrors).length > 0) {
-    return { ok: false, fieldErrors: ipRefErrors };
+  const [ipRefErrors, tableIpRefErrors] = await Promise.all([
+    validateIpReferenceValues(ipRefFields, validated.data.values),
+    validateTableIpReferenceValues(tableFields, validated.data.tableRows),
+  ]);
+  const combinedIpRefErrors = { ...ipRefErrors, ...tableIpRefErrors };
+  if (Object.keys(combinedIpRefErrors).length > 0) {
+    return { ok: false, fieldErrors: combinedIpRefErrors };
   }
 
-  const tableFieldByKey = new Map(
-    existing.objectType.fields
-      .filter((f) => f.type === 'TABLE')
-      .map((f) => [f.key, f] as const),
-  );
+  const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -523,6 +562,11 @@ export async function updatePassport(
           })),
         });
       }
+      // Runs after the table rows above are (re)inserted — needs their
+      // real (freshly-generated) ids, see syncTableCellIpAddressLinks's
+      // doc comment. The deleteMany just above already cascaded away any
+      // old links for this passport's previous rows.
+      await syncTableCellIpAddressLinks(tx, id, tableFields);
     });
 
     await writeAudit('UPDATE', id, currentUser.id, { name });

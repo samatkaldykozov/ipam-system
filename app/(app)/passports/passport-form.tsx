@@ -130,6 +130,23 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
       .filter((f) => f.type === 'IP_REFERENCE')
       .map((f) => values[f.key])
       .filter((v): v is string => typeof v === 'string' && v.length > 0);
+
+    // Same resolution one level down — a TABLE field can have a column of
+    // type IP_REFERENCE too (26 August 2026), whose cells are also just a
+    // bare id in tableRows state.
+    for (const field of objectType.fields) {
+      if (field.type !== 'TABLE') continue;
+      const ipRefColumnKeys = getTableColumns(field.tableColumns)
+        .filter((c) => c.type === 'IP_REFERENCE')
+        .map((c) => c.key);
+      if (ipRefColumnKeys.length === 0) continue;
+      for (const row of tableRows[field.key] ?? []) {
+        for (const key of ipRefColumnKeys) {
+          if (row[key]) ids.push(row[key]);
+        }
+      }
+    }
+
     if (ids.length === 0) return;
     let cancelled = false;
     getIpAddressLabels(ids).then((map) => {
@@ -413,6 +430,7 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                     onCellChange={(index, columnKey, value) =>
                       setTableCell(field.key, index, columnKey, value)
                     }
+                    ipRefLabels={ipRefLabels}
                   />
                 ) : null}
 
@@ -736,6 +754,11 @@ interface TableFieldEditorProps {
   onAddRow: (columns: TableColumnDef[]) => void;
   onRemoveRow: (index: number) => void;
   onCellChange: (index: number, columnKey: string, value: string) => void;
+  // Initial labels for IP_REFERENCE columns' cells, resolved once by the
+  // parent form for every IP_REFERENCE value on the passport at once (see
+  // the ipRefLabels effect in PassportForm) — same idea as the regular
+  // IP_REFERENCE field's initialLabel, one level down.
+  ipRefLabels: Record<string, IpAddressRefLabel>;
 }
 
 function TableFieldEditor({
@@ -746,6 +769,7 @@ function TableFieldEditor({
   onAddRow,
   onRemoveRow,
   onCellChange,
+  ipRefLabels,
 }: TableFieldEditorProps) {
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -811,6 +835,12 @@ function TableFieldEditor({
                         <IpAddressField
                           value={row[col.key] ?? ''}
                           onChange={(v) => onCellChange(index, col.key, v)}
+                        />
+                      ) : col.type === 'IP_REFERENCE' ? (
+                        <IpReferenceField
+                          value={row[col.key] ?? ''}
+                          onChange={(v) => onCellChange(index, col.key, v)}
+                          initialLabel={ipRefLabels[row[col.key] ?? '']}
                         />
                       ) : (
                         <Input

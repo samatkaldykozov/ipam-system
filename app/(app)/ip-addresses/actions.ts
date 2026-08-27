@@ -342,18 +342,31 @@ export async function deleteIpAddress(id: string): Promise<ActionResult> {
       return { ok: false, message: 'IP address not found' };
     }
 
-    // An IP_REFERENCE field on a passport is a real foreign key
-    // (onDelete: Restrict — see FieldIpAddressValue in schema.prisma), so
-    // deleting a referenced address would otherwise fail with a raw
-    // Prisma FK error. Check first and name the passport(s) instead.
-    const links = await prisma.fieldIpAddressValue.findMany({
-      where: { ipAddressId: id },
-      take: 5,
-      include: { objectInstance: { select: { name: true } } },
-    });
-    if (links.length > 0) {
+    // An IP_REFERENCE field (or IP_REFERENCE column inside a TABLE field)
+    // on a passport is a real foreign key (onDelete: Restrict — see
+    // FieldIpAddressValue and TableCellIpAddressValue in schema.prisma),
+    // so deleting a referenced address would otherwise fail with a raw
+    // Prisma FK error. Check both first and name the passport(s) instead.
+    const [links, tableCellLinks] = await Promise.all([
+      prisma.fieldIpAddressValue.findMany({
+        where: { ipAddressId: id },
+        take: 5,
+        include: { objectInstance: { select: { name: true } } },
+      }),
+      prisma.tableCellIpAddressValue.findMany({
+        where: { ipAddressId: id },
+        take: 5,
+        include: {
+          tableFieldRow: { include: { objectInstance: { select: { name: true } } } },
+        },
+      }),
+    ]);
+    if (links.length > 0 || tableCellLinks.length > 0) {
       const names = Array.from(
-        new Set(links.map((l) => l.objectInstance.name)),
+        new Set([
+          ...links.map((l) => l.objectInstance.name),
+          ...tableCellLinks.map((l) => l.tableFieldRow.objectInstance.name),
+        ]),
       );
       return {
         ok: false,

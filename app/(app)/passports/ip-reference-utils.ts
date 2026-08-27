@@ -81,6 +81,140 @@ export async function validateIpReferenceValues(
   return fieldErrors;
 }
 
+// ─────────────────────────────────────────────
+// TABLE-column counterpart (26 August 2026) — a TABLE field can have a
+// column of type IP_REFERENCE (see TABLE_COLUMN_TYPES in
+// lib/validations.ts). The cell's value is still an IpAddress id stored
+// in TableFieldRow.cells JSON, same "one JSON blob" pattern as everywhere
+// else; TableCellIpAddressValue is its real relational mirror, one row
+// per (table row, column) — see schema.prisma's doc comment on that
+// model. Deliberately separate functions from the regular-field ones
+// above rather than a shared generic: the two levels (whole passport vs.
+// one table row) don't share a natural key.
+// ─────────────────────────────────────────────
+
+// Minimal shape of a TABLE field's column metadata — enough to find the
+// IP_REFERENCE columns without importing the full TableColumnDef type
+// (app/(app)/object-types/types.ts), which pulls in more than this needs.
+type TableColumnLike = { key: string; type: string };
+
+function parseTableColumns(raw: unknown): TableColumnLike[] {
+  return Array.isArray(raw) ? (raw as TableColumnLike[]) : [];
+}
+
+// The IP_REFERENCE column keys of one TABLE field, read from its stored
+// `tableColumns` JSON metadata.
+export function ipReferenceColumnKeys(field: FieldDefinition): string[] {
+  return parseTableColumns(field.tableColumns)
+    .filter((c) => c.type === 'IP_REFERENCE')
+    .map((c) => c.key);
+}
+
+// Pre-check run before the transaction, mirroring validateIpReferenceValues
+// above but over every row of every TABLE field. tableRowsByFieldKey is
+// validate-values.ts's ValidatedPassportData.tableRows — one array of
+// plain cell-objects per TABLE field key, already trimmed/normalized.
+// Table rows don't have a per-cell error slot in the existing form (only
+// per-field, via ValidatePassportValuesResult.fieldErrors), so on the
+// first bad cell this reports which row/column, keyed by the field.
+export async function validateTableIpReferenceValues(
+  tableFields: FieldDefinition[],
+  tableRowsByFieldKey: Record<string, Record<string, unknown>[]>,
+): Promise<Record<string, string>> {
+  const wanted: {
+    fieldKey: string;
+    fieldLabel: string;
+    rowIndex: number;
+    columnKey: string;
+    ipAddressId: string;
+  }[] = [];
+
+  for (const field of tableFields) {
+    const columnKeys = ipReferenceColumnKeys(field);
+    if (columnKeys.length === 0) continue;
+    const rows = tableRowsByFieldKey[field.key] ?? [];
+    rows.forEach((row, rowIndex) => {
+      for (const columnKey of columnKeys) {
+        const raw = row[columnKey];
+        if (typeof raw === 'string' && raw) {
+          wanted.push({
+            fieldKey: field.key,
+            fieldLabel: field.label,
+            rowIndex,
+            columnKey,
+            ipAddressId: raw,
+          });
+        }
+      }
+    });
+  }
+  if (wanted.length === 0) return {};
+
+  const found = await prisma.ipAddress.findMany({
+    where: { id: { in: wanted.map((w) => w.ipAddressId) } },
+    select: { id: true },
+  });
+  const foundIds = new Set(found.map((f) => f.id));
+
+  const fieldErrors: Record<string, string> = {};
+  for (const w of wanted) {
+    if (!foundIds.has(w.ipAddressId) && !fieldErrors[w.fieldKey]) {
+      fieldErrors[w.fieldKey] =
+        `«${w.fieldLabel}», строка ${w.rowIndex + 1}: выбранного IP-адреса больше нет в IPAM — выберите другой`;
+    }
+  }
+  return fieldErrors;
+}
+
+// Run inside the same transaction, AFTER this save's TableFieldRow rows
+// have been (re)created — needs their real ids, which only exist once
+// they're inserted. Re-reads those rows back (ordered the same way they
+// were inserted, by rowOrder) rather than threading ids through the
+// createMany call, since Prisma's createMany doesn't return the created
+// rows. No explicit delete of old links first: the old TableFieldRow rows
+// were already deleted earlier in the same transaction (the usual
+// "delete-then-recreate" sync in actions.ts), and onDelete: Cascade on
+// TableCellIpAddressValue.tableFieldRow already cleaned those up with it.
+export async function syncTableCellIpAddressLinks(
+  tx: Prisma.TransactionClient,
+  objectInstanceId: string,
+  tableFields: FieldDefinition[],
+): Promise<void> {
+  const ipRefTableFields = tableFields.filter(
+    (f) => ipReferenceColumnKeys(f).length > 0,
+  );
+  if (ipRefTableFields.length === 0) return;
+
+  const columnKeysByFieldId = new Map(
+    ipRefTableFields.map((f) => [f.id, ipReferenceColumnKeys(f)]),
+  );
+
+  const rows = await tx.tableFieldRow.findMany({
+    where: {
+      objectInstanceId,
+      fieldDefinitionId: { in: ipRefTableFields.map((f) => f.id) },
+    },
+    select: { id: true, fieldDefinitionId: true, cells: true },
+  });
+
+  const links = rows.flatMap((row) => {
+    const columnKeys = columnKeysByFieldId.get(row.fieldDefinitionId) ?? [];
+    const cells = row.cells as unknown as Record<string, unknown>;
+    return columnKeys
+      .map((columnKey) => {
+        const raw = cells[columnKey];
+        return typeof raw === 'string' && raw
+          ? { tableFieldRowId: row.id, columnKey, ipAddressId: raw }
+          : null;
+      })
+      .filter((link): link is NonNullable<typeof link> => link !== null);
+  });
+
+  if (links.length > 0) {
+    await tx.tableCellIpAddressValue.createMany({ data: links });
+  }
+}
+
 export interface IpAddressRefLabel {
   id: string;
   address: string;

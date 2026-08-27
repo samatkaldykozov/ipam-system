@@ -210,13 +210,18 @@ export const FIELD_DEFINITION_TYPES = [
 ] as const;
 
 // Column types allowed inside a TABLE field's own columns — TABLE can't
-// nest inside itself.
+// nest inside itself. IP_REFERENCE is allowed here too (26 August 2026,
+// extending the regular-field feature to table columns — see
+// docs/it-passports-design.md section 6.3): a column of this type stores
+// a real IpAddress id per row, same as a regular IP_REFERENCE field, just
+// scoped to one cell — see TableCellIpAddressValue in schema.prisma.
 export const TABLE_COLUMN_TYPES = [
   'TEXT',
   'LONG_TEXT',
   'DATE',
   'BOOLEAN',
   'LINK',
+  'IP_REFERENCE',
 ] as const;
 
 const fieldKeyRegex = /^[a-z0-9_]+$/;
