@@ -32,6 +32,7 @@ import {
   updatePassport,
   checkIpAddressKnown,
   searchIpAddresses,
+  getIpAddressLabels,
 } from '@/app/(app)/passports/actions';
 import type {
   ObjectTypeForFill,
@@ -39,6 +40,7 @@ import type {
   PassportWithFields,
 } from '@/app/(app)/passports/types';
 import type { IpAddressSuggestion } from '@/app/(app)/passports/actions';
+import type { IpAddressRefLabel } from '@/app/(app)/passports/ip-reference-utils';
 import type { TableColumnDef } from '@/app/(app)/object-types/types';
 
 interface PassportFormProps {
@@ -113,6 +115,31 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
     passport?.responsible.map((r) => r.userId) ?? [],
   );
   const [userSearch, setUserSearch] = React.useState('');
+
+  // IP_REFERENCE fields store just an IpAddress id in `values` — resolve
+  // the initial (persisted) ids to display labels once on mount, since
+  // the picker below has no way to show "10.0.0.5" for a bare uuid on its
+  // own. Newly-picked values fill in their own label locally (see
+  // IpReferenceField), so this only ever needs to run once.
+  const [ipRefLabels, setIpRefLabels] = React.useState<
+    Record<string, IpAddressRefLabel>
+  >({});
+
+  React.useEffect(() => {
+    const ids = objectType.fields
+      .filter((f) => f.type === 'IP_REFERENCE')
+      .map((f) => values[f.key])
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    getIpAddressLabels(ids).then((map) => {
+      if (!cancelled) setIpRefLabels((prev) => ({ ...prev, ...map }));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function setFieldValue(key: string, value: string | boolean) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -367,6 +394,14 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                       onCheckedChange={(v) => setFieldValue(field.key, v)}
                     />
                   </div>
+                ) : field.type === 'IP_REFERENCE' ? (
+                  <IpReferenceField
+                    value={(values[field.key] as string) ?? ''}
+                    onChange={(v) => setFieldValue(field.key, v)}
+                    initialLabel={
+                      ipRefLabels[(values[field.key] as string) ?? '']
+                    }
+                  />
                 ) : field.type === 'TABLE' ? (
                   <TableFieldEditor
                     label={field.label}
@@ -554,6 +589,135 @@ function IpAddressField({
       {status === 'unknown' ? (
         <p className="mt-1.5 text-xs text-amber-600">
           Такого IP-адреса нет в IPAM — проверьте значение (сохранить всё равно можно).
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// IP_REFERENCE field — hard link to a real IpAddress row (see
+// FieldType.IP_REFERENCE in schema.prisma). Unlike IpAddressField above,
+// there's no free-text fallback: the stored value is the address's id, so
+// the only way to set it is picking a real result from search. `selected`
+// holds the currently-chosen address's display info; `initialLabel` seeds
+// it in edit mode, resolved once by the parent form for every
+// IP_REFERENCE field at once (see the ipRefLabels effect in PassportForm).
+// ─────────────────────────────────────────────
+
+function IpReferenceField({
+  value,
+  onChange,
+  initialLabel,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  initialLabel?: IpAddressRefLabel;
+}) {
+  const [query, setQuery] = React.useState('');
+  const [suggestions, setSuggestions] = React.useState<IpAddressSuggestion[]>(
+    [],
+  );
+  const [focused, setFocused] = React.useState(false);
+  const [selected, setSelected] = React.useState<IpAddressRefLabel | null>(
+    initialLabel ?? null,
+  );
+
+  // initialLabel arrives asynchronously — pick it up as soon as it
+  // resolves, as long as it still matches the value we're holding (guards
+  // against clobbering a fresh pick if this fires late).
+  React.useEffect(() => {
+    if (initialLabel && initialLabel.id === value) setSelected(initialLabel);
+  }, [initialLabel, value]);
+
+  React.useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const found = await searchIpAddresses(trimmed);
+      if (!cancelled) setSuggestions(found);
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  function pick(s: IpAddressSuggestion) {
+    setSelected(s);
+    setQuery('');
+    setFocused(false);
+    onChange(s.id);
+  }
+
+  function changeSelection() {
+    setSelected(null);
+    setQuery('');
+    onChange('');
+  }
+
+  if (selected) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+        <div>
+          <p className="text-sm font-medium">{selected.address}</p>
+          <p className="text-xs text-muted-foreground">
+            {[selected.hostname, selected.networkLabel]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={changeSelection}
+        >
+          Изменить
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        placeholder="Начните вводить адрес из IPAM…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        autoComplete="off"
+      />
+      {focused && suggestions.length > 0 ? (
+        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border bg-popover shadow-md">
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm hover:bg-accent"
+              onMouseDown={(e) => {
+                // onMouseDown (not onClick) so this fires before the
+                // input's onBlur would otherwise close the dropdown first.
+                e.preventDefault();
+                pick(s);
+              }}
+            >
+              <span className="font-medium">{s.address}</span>
+              <span className="text-xs text-muted-foreground">
+                {[s.hostname, s.networkLabel].filter(Boolean).join(' · ')}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {focused && query.trim() && suggestions.length === 0 ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Совпадений в IPAM не найдено.
         </p>
       ) : null}
     </div>

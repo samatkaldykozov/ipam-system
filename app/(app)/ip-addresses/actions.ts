@@ -342,6 +342,25 @@ export async function deleteIpAddress(id: string): Promise<ActionResult> {
       return { ok: false, message: 'IP address not found' };
     }
 
+    // An IP_REFERENCE field on a passport is a real foreign key
+    // (onDelete: Restrict — see FieldIpAddressValue in schema.prisma), so
+    // deleting a referenced address would otherwise fail with a raw
+    // Prisma FK error. Check first and name the passport(s) instead.
+    const links = await prisma.fieldIpAddressValue.findMany({
+      where: { ipAddressId: id },
+      take: 5,
+      include: { objectInstance: { select: { name: true } } },
+    });
+    if (links.length > 0) {
+      const names = Array.from(
+        new Set(links.map((l) => l.objectInstance.name)),
+      );
+      return {
+        ok: false,
+        message: `Этот адрес используется в паспорте: ${names.join(', ')} — сначала удалите ссылку там`,
+      };
+    }
+
     await prisma.ipAddress.delete({ where: { id } });
     await writeAudit('DELETE', id, currentUser.id, {
       address: ipAddress.address,

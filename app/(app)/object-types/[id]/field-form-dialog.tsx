@@ -351,6 +351,19 @@ export function FieldFormDialog({
             </div>
           ) : null}
 
+          {type === 'IP_REFERENCE' ? (
+            <div className="rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                При заполнении паспорта нужно будет выбрать реальный адрес
+                из IPAM через поиск — вписать произвольный текст нельзя.
+                В отличие от «Это IP-адрес» на текстовом поле (просто
+                подсказка), здесь значение — настоящая ссылка на запись в
+                IPAM: пока адрес выбран хотя бы в одном паспорте, удалить
+                его из IPAM не получится.
+              </p>
+            </div>
+          ) : null}
+
           {type === 'SELECT' ? (
             <div className="space-y-2 rounded-md border p-3">
               <Label>Варианты выбора</Label>

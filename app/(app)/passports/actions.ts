@@ -10,6 +10,13 @@ import {
   canEditPassports,
 } from '@/lib/auth';
 import { validatePassportValues } from '@/app/(app)/passports/validate-values';
+import {
+  ipReferenceFields,
+  resolveIpAddressLabels,
+  syncFieldIpAddressLinks,
+  validateIpReferenceValues,
+  type IpAddressRefLabel,
+} from '@/app/(app)/passports/ip-reference-utils';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -186,6 +193,23 @@ export async function getPassportView(id: string) {
     if (field.key in rawValues) values[field.key] = rawValues[field.key];
   }
 
+  // IP_REFERENCE values are stored as a bare IpAddress id — resolve them
+  // to the address text here, server-side, so the read-only view never
+  // has to show a raw uuid (same idea as exportPassportsCsv).
+  const ipRefFields = ipReferenceFields(visibleFields);
+  if (ipRefFields.length > 0) {
+    const ids = ipRefFields
+      .map((f) => values[f.key])
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    const labels = await resolveIpAddressLabels(ids);
+    for (const field of ipRefFields) {
+      const v = values[field.key];
+      if (typeof v === 'string' && v) {
+        values[field.key] = labels.get(v)?.address ?? v;
+      }
+    }
+  }
+
   const tableRows = instance.tableRows.filter((r) =>
     visibleFieldIds.has(r.fieldDefinitionId),
   );
@@ -238,15 +262,18 @@ export async function checkIpAddressKnown(address: string): Promise<boolean> {
 }
 
 export interface IpAddressSuggestion {
+  id: string;
   address: string;
   hostname: string | null;
   networkLabel: string;
 }
 
-// Prefix search over real IPAM addresses, used to power the autocomplete
-// dropdown under a `validateAsIp` field — purely a UI convenience, still
-// stores the field value as plain text either way (see checkIpAddressKnown
-// above for the accompanying advisory check).
+// Prefix search over real IPAM addresses. Powers two different UIs off the
+// same query: the autocomplete dropdown under a `validateAsIp` TEXT field
+// (a convenience only — that field still stores plain text, see
+// checkIpAddressKnown above) and the required picker for an IP_REFERENCE
+// field (which stores `id`, the only one of these fields that actually
+// needs it).
 export async function searchIpAddresses(
   prefix: string,
 ): Promise<IpAddressSuggestion[]> {
@@ -257,6 +284,7 @@ export async function searchIpAddresses(
   const found = await prisma.ipAddress.findMany({
     where: { address: { startsWith: trimmed } },
     select: {
+      id: true,
       address: true,
       hostname: true,
       network: { select: { name: true, cidr: true } },
@@ -265,10 +293,26 @@ export async function searchIpAddresses(
     take: 8,
   });
   return found.map((ip) => ({
+    id: ip.id,
     address: ip.address,
     hostname: ip.hostname,
     networkLabel: `${ip.network.name} (${ip.network.cidr})`,
   }));
+}
+
+// Resolves a passport's currently-selected IP_REFERENCE values (stored as
+// IpAddress ids) to display labels — used by the fill form's edit-mode
+// initial render, since the raw stored value is just a uuid. Wraps
+// resolveIpAddressLabels from ip-reference-utils.ts (shared with
+// csv-actions.ts) with the same passport-editor auth check as the rest of
+// this file.
+export async function getIpAddressLabels(
+  ids: string[],
+): Promise<Record<string, IpAddressRefLabel>> {
+  const currentUser = await requirePassportEditor();
+  if (!currentUser) return {};
+  const map = await resolveIpAddressLabels(ids);
+  return Object.fromEntries(map);
 }
 
 // ─────────────────────────────────────────────
@@ -320,6 +364,15 @@ export async function createPassport(
     return { ok: false, fieldErrors: validated.fieldErrors };
   }
 
+  const ipRefFields = ipReferenceFields(objectType.fields);
+  const ipRefErrors = await validateIpReferenceValues(
+    ipRefFields,
+    validated.data.values,
+  );
+  if (Object.keys(ipRefErrors).length > 0) {
+    return { ok: false, fieldErrors: ipRefErrors };
+  }
+
   const tableFieldByKey = new Map(
     objectType.fields
       .filter((f) => f.type === 'TABLE')
@@ -352,6 +405,13 @@ export async function createPassport(
           })),
         });
       }
+
+      await syncFieldIpAddressLinks(
+        tx,
+        created.id,
+        ipRefFields,
+        validated.data.values,
+      );
 
       return created;
     });
@@ -407,6 +467,15 @@ export async function updatePassport(
     return { ok: false, fieldErrors: validated.fieldErrors };
   }
 
+  const ipRefFields = ipReferenceFields(existing.objectType.fields);
+  const ipRefErrors = await validateIpReferenceValues(
+    ipRefFields,
+    validated.data.values,
+  );
+  if (Object.keys(ipRefErrors).length > 0) {
+    return { ok: false, fieldErrors: ipRefErrors };
+  }
+
   const tableFieldByKey = new Map(
     existing.objectType.fields
       .filter((f) => f.type === 'TABLE')
@@ -422,6 +491,8 @@ export async function updatePassport(
           values: validated.data.values as Prisma.InputJsonValue,
         },
       });
+
+      await syncFieldIpAddressLinks(tx, id, ipRefFields, validated.data.values);
 
       // Responsible users and table rows are both replaced wholesale
       // rather than diffed — same approach as FieldVisibility in the form

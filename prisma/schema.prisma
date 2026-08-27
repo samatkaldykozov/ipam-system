@@ -100,6 +100,16 @@ enum FieldType {
   LINK
   SELECT
   TABLE
+  // Full relational link to a real IpAddress row (see
+  // docs/it-passports-design.md section 6.3, "вариант 1") — unlike TEXT +
+  // validateAsIp (a soft, advisory check on a plain-text value), a field of
+  // this type can only ever hold the id of a real IpAddress: the value
+  // stored in ObjectInstance.values is that id, and FieldIpAddressValue
+  // mirrors it in a real relational row with an actual foreign key, so
+  // deleting an IpAddress that's referenced by a passport is rejected at
+  // the database level (see FieldIpAddressValue.ipAddress below), not just
+  // advised against.
+  IP_REFERENCE
 
   @@map("field_type")
 }
@@ -227,6 +237,13 @@ model IpAddress {
   basis            String?     @map("basis")             // «Основание»
 
   network Network @relation(fields: [networkId], references: [id], onDelete: Cascade)
+  // Passport fields of type IP_REFERENCE currently pointing at this
+  // address — see FieldIpAddressValue. onDelete: Restrict there means
+  // Postgres itself refuses to delete an IpAddress while any such row
+  // exists (deleteIpAddress in app/(app)/ip-addresses/actions.ts checks
+  // this proactively for a friendly error, but the DB constraint is the
+  // actual guarantee).
+  passportLinks FieldIpAddressValue[]
 
   @@index([networkId])
   @@index([status])
@@ -321,13 +338,45 @@ model FieldDefinition {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  objectType   ObjectType        @relation(fields: [objectTypeId], references: [id], onDelete: Cascade)
-  visibleRoles FieldVisibility[]
-  tableRows    TableFieldRow[]
+  objectType     ObjectType            @relation(fields: [objectTypeId], references: [id], onDelete: Cascade)
+  visibleRoles   FieldVisibility[]
+  tableRows      TableFieldRow[]
+  ipAddressLinks FieldIpAddressValue[]
 
   @@unique([objectTypeId, key])
   @@index([objectTypeId])
   @@map("field_definitions")
+}
+
+// ─────────────────────────────────────────────
+// FieldIpAddressValue — the real relational backing for FieldType.
+// IP_REFERENCE fields. One row per (passport, field) pair currently
+// pointing at a real IpAddress. ObjectInstance.values still holds the
+// IpAddress id under the field's key (same "one JSON blob" pattern as
+// every other field type, so existing generic read paths keep working),
+// but this table is the source of truth for referential integrity: the
+// onDelete: Restrict on `ipAddress` is what actually stops an in-use
+// address from being deleted, kept in sync transactionally by
+// createPassport/updatePassport (app/(app)/passports/actions.ts) and by
+// importPassportsCsv (csv-actions.ts) whenever an IP_REFERENCE field's
+// value is written.
+// ─────────────────────────────────────────────
+
+model FieldIpAddressValue {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectInstanceId  String   @map("object_instance_id") @db.Uuid
+  fieldDefinitionId String   @map("field_definition_id") @db.Uuid
+  ipAddressId       String   @map("ip_address_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  objectInstance  ObjectInstance  @relation(fields: [objectInstanceId], references: [id], onDelete: Cascade)
+  fieldDefinition FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  ipAddress       IpAddress       @relation(fields: [ipAddressId], references: [id], onDelete: Restrict)
+
+  @@unique([objectInstanceId, fieldDefinitionId])
+  @@index([ipAddressId])
+  @@map("field_ip_address_values")
 }
 
 // ─────────────────────────────────────────────
@@ -360,9 +409,10 @@ model ObjectInstance {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  objectType  ObjectType                  @relation(fields: [objectTypeId], references: [id], onDelete: Restrict)
-  responsible ObjectInstanceResponsible[]
-  tableRows   TableFieldRow[]
+  objectType   ObjectType                  @relation(fields: [objectTypeId], references: [id], onDelete: Restrict)
+  responsible  ObjectInstanceResponsible[]
+  tableRows    TableFieldRow[]
+  ipAddressLinks FieldIpAddressValue[]
 
   @@index([objectTypeId])
   @@map("object_instances")

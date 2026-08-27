@@ -8,6 +8,11 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentUser, canEditPassports } from '@/lib/auth';
 import { parseCsv, generateCsv, type ImportResult } from '@/lib/csv-utils';
 import { validatePassportValues } from '@/app/(app)/passports/validate-values';
+import {
+  ipReferenceFields,
+  resolveIpAddressLabels,
+  syncFieldIpAddressLinks,
+} from '@/app/(app)/passports/ip-reference-utils';
 
 // Plan step 7 (docs/it-passports-design.md section 5, optional):
 // CSV import/export per object type, reusing the same lib/csv-utils.ts
@@ -43,11 +48,26 @@ export async function exportPassportsCsv(objectTypeId: string): Promise<string> 
 
   const fields = nonTableFields(objectType.fields);
   const headers = ['name', ...fields.map((f) => f.key)];
+  const ipRefKeys = new Set(ipReferenceFields(fields).map((f) => f.key));
 
   const instances = await prisma.objectInstance.findMany({
     where: { objectTypeId },
     orderBy: { name: 'asc' },
   });
+
+  // IP_REFERENCE fields store an IpAddress id in `values` — resolve every
+  // id referenced across all rows to its address up front (one query)
+  // rather than per-cell, so the export shows the address, not a raw uuid.
+  const ipRefKeyList = Array.from(ipRefKeys);
+  const ipRefIds: string[] = [];
+  for (const instance of instances) {
+    const values = instance.values as unknown as Record<string, unknown>;
+    for (const key of ipRefKeyList) {
+      const v = values[key];
+      if (typeof v === 'string' && v) ipRefIds.push(v);
+    }
+  }
+  const ipRefLabels = await resolveIpAddressLabels(ipRefIds);
 
   const rows = instances.map((instance) => {
     const values = instance.values as unknown as Record<string, unknown>;
@@ -57,6 +77,14 @@ export async function exportPassportsCsv(objectTypeId: string): Promise<string> 
         const v = values[f.key];
         if (v === undefined || v === null) return '';
         if (f.type === 'BOOLEAN') return v === true ? 'true' : 'false';
+        if (ipRefKeys.has(f.key)) {
+          // Should always resolve — FK Restrict blocks deleting an
+          // IpAddress while it's still referenced — but fall back to the
+          // raw id rather than silently dropping data if it somehow can't.
+          return typeof v === 'string'
+            ? (ipRefLabels.get(v)?.address ?? v)
+            : String(v);
+        }
         return String(v);
       }),
     ];
@@ -100,6 +128,7 @@ export async function importPassportsCsv(
   }
 
   const fields = nonTableFields(objectType.fields);
+  const ipRefFields = ipReferenceFields(fields);
 
   const records = parseCsv(csvText);
   if (records.length === 0) {
@@ -157,23 +186,56 @@ export async function importPassportsCsv(
       continue;
     }
 
-    try {
-      const instance = await prisma.objectInstance.create({
-        data: {
-          objectTypeId,
-          name,
-          values: validated.data.values as Prisma.InputJsonValue,
-          createdById: currentUser.id,
-        },
+    // IP_REFERENCE columns round-trip as address text (see
+    // exportPassportsCsv above), but the stored value has to be the real
+    // IpAddress id — resolve each one here and fail the row if it isn't a
+    // real, current IPAM address, same as validateIpReferenceValues does
+    // for the regular form.
+    let ipRefRowError: string | null = null;
+    for (const field of ipRefFields) {
+      const addressText = validated.data.values[field.key];
+      if (typeof addressText !== 'string' || !addressText) continue;
+      const ip = await prisma.ipAddress.findUnique({
+        where: { address: addressText },
+        select: { id: true },
       });
-      await prisma.auditLog.create({
-        data: {
-          action: 'CREATE',
-          entity: 'ObjectInstance',
-          entityId: instance.id,
-          userId: currentUser.id,
-          metadata: { name, objectTypeId, source: 'csv-import' },
-        },
+      if (!ip) {
+        ipRefRowError = `«${field.label}»: адрес «${addressText}» не найден в IPAM`;
+        break;
+      }
+      validated.data.values[field.key] = ip.id;
+    }
+    if (ipRefRowError) {
+      errors.push({ row: rowNum, message: ipRefRowError });
+      continue;
+    }
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const created = await tx.objectInstance.create({
+          data: {
+            objectTypeId,
+            name,
+            values: validated.data.values as Prisma.InputJsonValue,
+            createdById: currentUser.id,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            action: 'CREATE',
+            entity: 'ObjectInstance',
+            entityId: created.id,
+            userId: currentUser.id,
+            metadata: { name, objectTypeId, source: 'csv-import' },
+          },
+        });
+        await syncFieldIpAddressLinks(
+          tx,
+          created.id,
+          ipRefFields,
+          validated.data.values,
+        );
+        return created;
       });
       created += 1;
     } catch {

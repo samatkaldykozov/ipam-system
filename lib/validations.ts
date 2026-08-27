@@ -202,6 +202,11 @@ export const FIELD_DEFINITION_TYPES = [
   'LINK',
   'SELECT',
   'TABLE',
+  // Full relational link to a real IpAddress row — see
+  // schema.prisma's FieldType.IP_REFERENCE doc comment and
+  // docs/it-passports-design.md section 6.3 ("вариант 1"). Scoped to
+  // regular (non-TABLE) fields for now, same as validateAsIp before it.
+  'IP_REFERENCE',
 ] as const;
 
 // Column types allowed inside a TABLE field's own columns — TABLE can't

@@ -16,6 +16,7 @@ export const FIELD_TYPE_LABELS: Record<string, string> = {
   LINK: 'Ссылка (URL)',
   SELECT: 'Список вариантов',
   TABLE: 'Таблица',
+  IP_REFERENCE: 'Ссылка на IP-адрес (IPAM)',
 };
 
 export { TABLE_COLUMN_TYPES };
