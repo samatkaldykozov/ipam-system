@@ -19,6 +19,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -26,8 +27,24 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { createLocation, updateLocation } from '@/app/(app)/locations/actions';
-import type { LocationWithCount } from '@/app/(app)/locations/types';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  createLocation,
+  updateLocation,
+  getAvailableLocationParents,
+} from '@/app/(app)/locations/actions';
+import {
+  LOCATION_KIND_OPTIONS,
+  locationKindLabel,
+  type LocationParentOption,
+  type LocationWithCount,
+} from '@/app/(app)/locations/types';
 
 interface LocationFormDialogProps {
   open: boolean;
@@ -36,8 +53,11 @@ interface LocationFormDialogProps {
 }
 
 const EMPTY: LocationValues = {
+  kind: 'BUILDING',
+  parentId: undefined,
   name: '',
   code: '',
+  rowCode: '',
   address: '',
   city: '',
   country: '',
@@ -53,6 +73,9 @@ export function LocationFormDialog({
 }: LocationFormDialogProps) {
   const isEdit = !!location;
   const [submitting, setSubmitting] = React.useState(false);
+  const [parentOptions, setParentOptions] = React.useState<
+    LocationParentOption[]
+  >([]);
 
   const form = useForm<LocationValues>({
     resolver: zodResolver(locationSchema),
@@ -63,8 +86,11 @@ export function LocationFormDialog({
     if (open) {
       if (location) {
         form.reset({
+          kind: location.kind,
+          parentId: location.parentId ?? undefined,
           name: location.name,
           code: location.code,
+          rowCode: location.rowCode ?? '',
           address: location.address ?? '',
           city: location.city ?? '',
           country: location.country ?? '',
@@ -75,8 +101,11 @@ export function LocationFormDialog({
       } else {
         form.reset(EMPTY);
       }
+      getAvailableLocationParents(location?.id).then(setParentOptions);
     }
   }, [open, location, form]);
+
+  const kind = form.watch('kind');
 
   async function onSubmit(values: LocationValues) {
     setSubmitting(true);
@@ -111,12 +140,76 @@ export function LocationFormDialog({
           <DialogDescription>
             {isEdit
               ? 'Update the location details below.'
-              : 'Add a new site that networks can be assigned to.'}
+              : 'Add a node to the location hierarchy — a region, city, building, room, secure zone, or rack.'}
           </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="kind"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Kind</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {LOCATION_KIND_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="parentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Parent</FormLabel>
+                    <Select
+                      value={field.value ?? 'none'}
+                      onValueChange={(v) =>
+                        field.onChange(v === 'none' ? undefined : v)
+                      }
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="No parent (top-level)" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">
+                          No parent (top-level)
+                        </SelectItem>
+                        {parentOptions.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name} ({locationKindLabel(p.kind)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Where this node sits in the hierarchy. Leave empty for a
+                      top-level region or city.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
@@ -146,6 +239,26 @@ export function LocationFormDialog({
                 )}
               />
             </div>
+
+            {kind === 'RACK' ? (
+              <FormField
+                control={form.control}
+                name="rowCode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Row</FormLabel>
+                    <FormControl>
+                      <Input placeholder="A" {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Optional row letter/number, if racks in this zone are
+                      arranged in rows. Leave empty if they aren&apos;t.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
             <FormField
               control={form.control}

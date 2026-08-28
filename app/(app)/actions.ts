@@ -56,7 +56,16 @@ export async function getDashboardData() {
     prisma.ipAddress.findMany({
       select: { status: true, createdAt: true },
     }),
+    // Root-level ("site") locations only. Location became a deeper tree on
+    // 28 August 2026 (Region/City/Building/Room/Zone/Rack — see
+    // schema.prisma) for the CMDB work; a rack or a room never holds a
+    // network directly, so counting every node here would flood the "no
+    // networks assigned" alert and the By Location card below with
+    // hundreds of meaningless zero-network rows once that hierarchy is
+    // actually populated. Site level is the only level networks ever
+    // attach to (see networks/actions.ts's getLocations()).
     prisma.location.findMany({
+      where: { parentId: null },
       select: {
         id: true,
         name: true,

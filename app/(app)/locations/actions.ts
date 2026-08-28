@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { Prisma } from '@prisma/client';
+import { Prisma, LocationKind } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import { locationSchema, type LocationValues } from '@/lib/validations';
@@ -37,6 +37,7 @@ async function writeAudit(
   });
 }
 
+// Paginated, searchable flat list — used by the "List" view.
 export async function getLocations(params: {
   search?: string;
   sortBy?: SortField;
@@ -65,7 +66,10 @@ export async function getLocations(params: {
   const [items, total] = await Promise.all([
     prisma.location.findMany({
       where,
-      include: { _count: { select: { networks: true } } },
+      include: {
+        _count: { select: { networks: true, children: true } },
+        parent: { select: { id: true, name: true, code: true } },
+      },
       orderBy: { [sortBy]: sortOrder },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -80,6 +84,78 @@ export async function getLocations(params: {
     pageSize,
     totalPages: Math.ceil(total / pageSize),
   };
+}
+
+// Unpaged — used by the "Tree" view, which builds the hierarchy client-side
+// (same pattern as networks/actions.ts's getNetworkTree). The dataset here
+// is small (hundreds to low thousands of nodes even at full CMDB scale),
+// so fetching everything at once is fine — see it-passports-design.md on
+// scale for the same reasoning applied to passports.
+export async function getLocationTree() {
+  return prisma.location.findMany({
+    include: {
+      _count: { select: { networks: true, children: true } },
+      parent: { select: { id: true, name: true, code: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
+}
+
+// Every existing location is a valid parent candidate, except the node
+// being edited and any of its own descendants (picking one of those would
+// create a cycle) — mirrors getAvailableParents in networks/actions.ts.
+export async function getAvailableLocationParents(excludeId?: string) {
+  const all = await prisma.location.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, code: true, kind: true, parentId: true },
+  });
+
+  if (!excludeId) {
+    return all.map(({ id, name, code, kind }) => ({ id, name, code, kind }));
+  }
+
+  const excluded = new Set<string>([excludeId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const l of all) {
+      if (l.parentId && excluded.has(l.parentId) && !excluded.has(l.id)) {
+        excluded.add(l.id);
+        changed = true;
+      }
+    }
+  }
+
+  return all
+    .filter((l) => !excluded.has(l.id))
+    .map(({ id, name, code, kind }) => ({ id, name, code, kind }));
+}
+
+// Root-level ("site") locations only — the level networks actually attach
+// to. Used by networks/actions.ts's own getLocations() for the network
+// form's location dropdown, so a network can't accidentally be assigned to
+// a rack or a room.
+export async function getSiteLocations() {
+  return prisma.location.findMany({
+    where: { parentId: null },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, code: true },
+  });
+}
+
+async function findSibling(
+  parentId: string | null,
+  field: 'name' | 'code',
+  value: string,
+  excludeId?: string,
+) {
+  return prisma.location.findFirst({
+    where: {
+      parentId,
+      [field]: value,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+  });
 }
 
 export async function createLocation(
@@ -99,32 +175,47 @@ export async function createLocation(
     return { ok: false, fieldErrors };
   }
   const data = parsed.data;
+  const parentId = data.parentId || null;
 
-  const existingName = await prisma.location.findUnique({
-    where: { name: data.name },
-  });
+  if (parentId) {
+    const parent = await prisma.location.findUnique({
+      where: { id: parentId },
+    });
+    if (!parent) {
+      return {
+        ok: false,
+        fieldErrors: { parentId: 'Selected parent location does not exist' },
+      };
+    }
+  }
+
+  // name/code are unique among siblings (same parent), not globally — see
+  // the comment on the Location model in schema.prisma.
+  const [existingName, existingCode] = await Promise.all([
+    findSibling(parentId, 'name', data.name),
+    findSibling(parentId, 'code', data.code),
+  ]);
   if (existingName) {
     return {
       ok: false,
-      fieldErrors: { name: 'A location with this name already exists' },
+      fieldErrors: { name: 'A location with this name already exists here' },
     };
   }
-
-  const existingCode = await prisma.location.findUnique({
-    where: { code: data.code },
-  });
   if (existingCode) {
     return {
       ok: false,
-      fieldErrors: { code: 'A location with this code already exists' },
+      fieldErrors: { code: 'A location with this code already exists here' },
     };
   }
 
   try {
     const location = await prisma.location.create({
       data: {
+        kind: data.kind as LocationKind,
+        parentId,
         name: data.name,
         code: data.code,
+        rowCode: data.rowCode || null,
         address: data.address || null,
         city: data.city || null,
         country: data.country || null,
@@ -136,6 +227,7 @@ export async function createLocation(
     await writeAudit('CREATE', location.id, currentUser.id, {
       name: location.name,
       code: location.code,
+      kind: location.kind,
     });
     revalidatePath('/locations');
     revalidatePath('/networks');
@@ -163,24 +255,41 @@ export async function updateLocation(
     return { ok: false, fieldErrors };
   }
   const data = parsed.data;
+  const parentId = data.parentId || null;
 
-  const existingName = await prisma.location.findUnique({
-    where: { name: data.name },
-  });
-  if (existingName && existingName.id !== id) {
+  if (parentId === id) {
     return {
       ok: false,
-      fieldErrors: { name: 'A location with this name already exists' },
+      fieldErrors: { parentId: 'A location cannot be its own parent' },
     };
   }
 
-  const existingCode = await prisma.location.findUnique({
-    where: { code: data.code },
-  });
-  if (existingCode && existingCode.id !== id) {
+  if (parentId) {
+    const parent = await prisma.location.findUnique({
+      where: { id: parentId },
+    });
+    if (!parent) {
+      return {
+        ok: false,
+        fieldErrors: { parentId: 'Selected parent location does not exist' },
+      };
+    }
+  }
+
+  const [existingName, existingCode] = await Promise.all([
+    findSibling(parentId, 'name', data.name, id),
+    findSibling(parentId, 'code', data.code, id),
+  ]);
+  if (existingName) {
     return {
       ok: false,
-      fieldErrors: { code: 'A location with this code already exists' },
+      fieldErrors: { name: 'A location with this name already exists here' },
+    };
+  }
+  if (existingCode) {
+    return {
+      ok: false,
+      fieldErrors: { code: 'A location with this code already exists here' },
     };
   }
 
@@ -188,8 +297,11 @@ export async function updateLocation(
     const location = await prisma.location.update({
       where: { id },
       data: {
+        kind: data.kind as LocationKind,
+        parentId,
         name: data.name,
         code: data.code,
+        rowCode: data.rowCode || null,
         address: data.address || null,
         city: data.city || null,
         country: data.country || null,
@@ -201,6 +313,7 @@ export async function updateLocation(
     await writeAudit('UPDATE', location.id, currentUser.id, {
       name: location.name,
       code: location.code,
+      kind: location.kind,
     });
     revalidatePath('/locations');
     revalidatePath('/networks');
@@ -219,10 +332,17 @@ export async function deleteLocation(id: string): Promise<ActionResult> {
   try {
     const location = await prisma.location.findUnique({
       where: { id },
-      include: { _count: { select: { networks: true } } },
+      include: { _count: { select: { networks: true, children: true } } },
     });
     if (!location) {
       return { ok: false, message: 'Location not found' };
+    }
+
+    if (location._count.children > 0) {
+      return {
+        ok: false,
+        message: `Cannot delete this location because it has ${location._count.children} child location(s). Delete or move them first.`,
+      };
     }
 
     if (location._count.networks > 0) {
@@ -236,6 +356,7 @@ export async function deleteLocation(id: string): Promise<ActionResult> {
     await writeAudit('DELETE', id, currentUser.id, {
       name: location.name,
       code: location.code,
+      kind: location.kind,
     });
     revalidatePath('/locations');
     revalidatePath('/networks');

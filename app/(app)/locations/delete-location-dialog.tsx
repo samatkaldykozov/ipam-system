@@ -41,6 +41,7 @@ export function DeleteLocationDialog({
   if (!location) return null;
 
   const hasNetworks = location._count.networks > 0;
+  const hasChildren = location._count.children > 0;
 
   async function handleDelete() {
     setDeleting(true);
@@ -70,6 +71,13 @@ export function DeleteLocationDialog({
                 </span>{' '}
                 ({location.code})? This action cannot be undone.
               </p>
+              {hasChildren ? (
+                <p className="text-destructive">
+                  This location has {location._count.children} child location(s)
+                  beneath it. You must delete or move them before deleting this
+                  location.
+                </p>
+              ) : null}
               {hasNetworks ? (
                 <p className="text-destructive">
                   This location has {location._count.networks} network(s)
@@ -88,7 +96,7 @@ export function DeleteLocationDialog({
               e.preventDefault();
               handleDelete();
             }}
-            disabled={deleting || hasNetworks}
+            disabled={deleting || hasNetworks || hasChildren}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             {deleting ? (

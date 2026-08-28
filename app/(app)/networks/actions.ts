@@ -37,8 +37,13 @@ async function writeAudit(
   });
 }
 
+// Root-level ("site") locations only, now that Location can be a deeper
+// tree (Region/City/Building/Room/Zone/Rack — see schema.prisma). A network
+// still attaches at the site level, same as before the hierarchy existed;
+// picking a rack or a room here wouldn't mean anything.
 export async function getLocations() {
   return prisma.location.findMany({
+    where: { parentId: null },
     orderBy: { name: 'asc' },
     select: { id: true, name: true, code: true },
   });

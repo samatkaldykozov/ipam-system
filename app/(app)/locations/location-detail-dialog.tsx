@@ -13,7 +13,10 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import type { LocationWithCount } from '@/app/(app)/locations/types';
+import {
+  locationKindLabel,
+  type LocationWithCount,
+} from '@/app/(app)/locations/types';
 
 interface LocationDetailDialogProps {
   open: boolean;
@@ -61,7 +64,17 @@ export function LocationDetailDialog({
           <Field label="Name" value={location.name} />
           <Field
             label="Code"
-            value={<span className="font-mono">{location.code}</span>}
+            value={
+              <span className="font-mono">
+                {location.code}
+                {location.rowCode ? ` (row ${location.rowCode})` : ''}
+              </span>
+            }
+          />
+          <Field label="Kind" value={locationKindLabel(location.kind)} />
+          <Field
+            label="Parent"
+            value={location.parent ? location.parent.name : 'Top-level'}
           />
           <Field label="City" value={location.city} />
           <Field label="Country" value={location.country} />
@@ -69,6 +82,10 @@ export function LocationDetailDialog({
           <Field
             label="Networks"
             value={<Badge variant="outline">{location._count.networks}</Badge>}
+          />
+          <Field
+            label="Child locations"
+            value={<Badge variant="outline">{location._count.children}</Badge>}
           />
           <Field
             label="Created"

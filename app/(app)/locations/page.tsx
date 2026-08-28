@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LocationsTable } from '@/app/(app)/locations/locations-table';
-import { getLocations } from '@/app/(app)/locations/actions';
+import { getLocations, getLocationTree } from '@/app/(app)/locations/actions';
 import type { SortField } from '@/app/(app)/locations/types';
 import { getCurrentUser, canEdit } from '@/lib/auth';
 
@@ -52,8 +52,9 @@ export default async function LocationsPage({
   const sortOrder = get('sortOrder') === 'desc' ? 'desc' : 'asc';
   const page = Math.max(1, parseInt(get('page') ?? '1', 10) || 1);
 
-  const [data, currentUser] = await Promise.all([
+  const [data, treeItems, currentUser] = await Promise.all([
     getLocations({ search, sortBy, sortOrder, page, pageSize: PAGE_SIZE }),
+    getLocationTree(),
     getCurrentUser(),
   ]);
 
@@ -63,7 +64,7 @@ export default async function LocationsPage({
     <div className="space-y-6">
       <PageHeader
         title="Locations"
-        description="Manage the physical or logical sites your networks are assigned to."
+        description="The physical location hierarchy — regions, cities, buildings, rooms, secure zones, and racks — plus the sites your networks are assigned to."
       />
 
       <Card>
@@ -74,6 +75,7 @@ export default async function LocationsPage({
           <Suspense fallback={<LocationsSkeleton />}>
             <LocationsTable
               items={data.items}
+              treeItems={treeItems}
               total={data.total}
               page={data.page}
               pageSize={data.pageSize}

@@ -88,13 +88,31 @@ const longitudeSchema = z
   .optional()
   .transform((v) => (v === '' || v === undefined ? undefined : Number(v)));
 
+export const LOCATION_KINDS = [
+  'REGION',
+  'CITY',
+  'BUILDING',
+  'ROOM',
+  'ZONE',
+  'RACK',
+] as const;
+
 export const locationSchema = z.object({
+  kind: z.enum(LOCATION_KINDS),
+  parentId: z.string().min(1).optional().nullable(),
   name: z.string().min(1, 'Name is required').max(120, 'Name is too long'),
   code: z
     .string()
     .min(1, 'Code is required')
     .max(20, 'Code is too long')
     .regex(/^[A-Za-z0-9-]+$/, 'Use letters, numbers, and hyphens only'),
+  // Row letter/number for a RACK, carried on the rack itself rather than as
+  // its own tree level — see the LocationKind comment in schema.prisma.
+  rowCode: z
+    .string()
+    .max(10, 'Row code is too long')
+    .regex(/^[A-Za-z0-9]*$/, 'Use letters and numbers only')
+    .optional(),
   address: z.string().max(255, 'Address is too long').optional(),
   city: z.string().max(120, 'City is too long').optional(),
   country: z.string().max(120, 'Country is too long').optional(),

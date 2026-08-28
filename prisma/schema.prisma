@@ -158,25 +158,65 @@ model User {
   @@map("users")
 }
 
+// Levels of the location hierarchy (see it-passports-design.md / roadmap.md,
+// "CMDB: дерево локаций", 28 August 2026). Rows are deliberately NOT their
+// own level — per the naming standard this project follows, a row is just a
+// single-letter code carried on the rack itself (Location.rowCode below),
+// not a container with its own children.
+enum LocationKind {
+  REGION // Широкая географическая группировка городов (опционально, не обязателен как родитель CITY)
+  CITY // Город/посёлок — верхний уровень в старой плоской модели, код обычно 4 латинские буквы
+  BUILDING // Здание
+  ROOM // Помещение: кабинет, коридор, кабельная шахта, или ЦОД-зал (гермозона living одним уровнем ниже, см. ZONE)
+  ZONE // Гермозона внутри ЦОД-помещения — где реально стоят стойки
+  RACK // Коммутационный шкаф/стойка
+
+  @@map("location_kind")
+}
+
 // ─────────────────────────────────────────────
 // Location
 // ─────────────────────────────────────────────
-
+//
+// A self-referencing tree: Region → City → Building → Room → Zone → Rack,
+// modeled as one recursive table rather than one model per level (matching
+// how Network already nests subnets under a parent Network, and how NetBox
+// models Region/Site/Location/Rack — see the CMDB discussion in
+// it-passports-design.md, 28 August 2026). Every row that existed before
+// this hierarchy was added is a root (parentId null) of kind BUILDING —
+// that's what the flat model already meant in practice (a site with an
+// address that networks attach to), so no data migration was needed beyond
+// backfilling that default.
+//
+// name/code used to be globally unique; they're now unique only among
+// siblings (same parentId), enforced in app code (locations/actions.ts),
+// not as a DB constraint — see that file's createLocation/updateLocation
+// for why (Postgres treats NULL parentId as distinct from itself, so a
+// plain composite unique index wouldn't actually constrain root-level
+// siblings). Root-level codes in particular stay effectively unique the
+// same way they always were, which matters because networks/csv-actions.ts
+// still resolves a network's location by root-level code text.
 model Location {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @unique
-  code        String   @unique
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentId    String?      @map("parent_id") @db.Uuid
+  kind        LocationKind @default(BUILDING)
+  name        String
+  code        String
+  rowCode     String?      @map("row_code") // ряд — только для RACK; см. комментарий у LocationKind
   address     String?
   city        String?
   country     String?
   latitude    Float?
   longitude   Float?
   description String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
+  parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children Location[] @relation("LocationHierarchy")
   networks Network[]
 
+  @@index([parentId])
   @@map("locations")
 }
 

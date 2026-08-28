@@ -99,7 +99,16 @@ export async function importNetworksCsv(
   }
 
   const [locations, existingNetworks] = await Promise.all([
-    prisma.location.findMany({ select: { id: true, code: true } }),
+    // Root-level ("site") locations only, matching what the network form's
+    // location dropdown now offers (see getLocations in actions.ts) now
+    // that Location can be a deeper tree — a locationCode column here was
+    // always meant to identify a site, not a rack or room somewhere inside
+    // one, and scoping this avoids an accidental match against a deeper
+    // node's code that happens to collide with a site's.
+    prisma.location.findMany({
+      where: { parentId: null },
+      select: { id: true, code: true },
+    }),
     prisma.network.findMany({
       select: { id: true, cidr: true, parentId: true },
     }),
