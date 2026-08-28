@@ -123,6 +123,26 @@ enum FieldType {
   // field type); FieldObjectReferenceValue is the real relational mirror,
   // exactly the way FieldIpAddressValue backs IP_REFERENCE.
   OBJECT_REFERENCE
+  // Computed composite equipment identifier (28 August 2026, CMDB phase 3
+  // — see it-passports-design.md section 8.1 item 3), per the Kazakhtelecom
+  // naming standard (ДИТ/И-05-28.2-16). Never entered by hand: the value —
+  // e.g. "alma-B2S1A1-cs-3" — is assembled server-side once, at the first
+  // save that has a rack to work with, from (a) the rack this passport
+  // lives in, read off another field on the *same* ObjectType that must be
+  // OBJECT_REFERENCE targeting LOCATION (see
+  // FieldDefinition.autoIdentifierRackFieldKey), (b) a fixed equipment-type
+  // code the admin chose once in the constructor (see
+  // FieldDefinition.autoIdentifierEquipmentTypeCodeId, EquipmentTypeCode),
+  // and (c) the next free sequential number for that (rack, code) pair.
+  // Deliberately scoped to top-level fields only, not TABLE columns — a
+  // table row rarely has its own rack, so extending this is deferred until
+  // an actual need appears. This first pass also only covers rack-anchored
+  // equipment (Table 2 of the standard); cluster/VM/patch-cord identifier
+  // formats are a separate future phase, not this field type. The computed
+  // string is still stored in ObjectInstance.values under the field's key
+  // like every other field type (generic read paths keep working), but
+  // FieldAutoIdentifierValue is the source of truth for uniqueness.
+  AUTO_IDENTIFIER
 
   @@map("field_type")
 }
@@ -247,6 +267,13 @@ model Location {
   // deleted; deleteLocation checks these proactively for a friendly error.
   referencedByFields     FieldObjectReferenceValue[]
   referencedByTableCells TableCellObjectReferenceValue[]
+  // AUTO_IDENTIFIER values (28 August 2026, CMDB phase 3) generated using
+  // this node as the rack — onDelete: Restrict on FieldAutoIdentifierValue.
+  // targetLocation is what actually stops a rack from being deleted once
+  // an identifier has been generated from it; deleteLocation checks this
+  // proactively for a friendly error, same pattern as the two relations
+  // above.
+  autoIdentifierLinks    FieldAutoIdentifierValue[]
 
   @@index([parentId])
   @@map("locations")
@@ -428,6 +455,23 @@ model FieldDefinition {
   // type pointing only at Server passports. Left null for
   // referenceTargetKind = LOCATION, where any node in the tree is valid.
   referenceObjectTypeId String?              @map("reference_object_type_id") @db.Uuid
+  // Only meaningful for AUTO_IDENTIFIER fields (phase 3) — the `key` of
+  // another FieldDefinition on the *same* ObjectType that must be
+  // OBJECT_REFERENCE with referenceTargetKind = LOCATION. That field
+  // supplies the rack this identifier is anchored to. Stored as a plain
+  // key, not a FK id, because it points at a sibling row of the same table
+  // being defined/edited in the same request (create/update run together
+  // in one call) — see validateAutoIdentifierConfig in
+  // object-types/actions.ts for the existence/type check done before
+  // create/update, and auto-identifier-utils.ts for how it's resolved at
+  // generation time.
+  autoIdentifierRackFieldKey        String?  @map("auto_identifier_rack_field_key")
+  // Only meaningful for AUTO_IDENTIFIER fields — the fixed equipment-type
+  // code (e.g. "cs" = коммутатор) this field always generates identifiers
+  // with, chosen once by the admin from EquipmentTypeCode. onDelete:
+  // Restrict so a code can't be deleted while some field is configured to
+  // use it (checked proactively in deleteEquipmentTypeCode).
+  autoIdentifierEquipmentTypeCodeId String? @map("auto_identifier_equipment_type_code_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -437,14 +481,19 @@ model FieldDefinition {
   // while some other field is still configured to reference it (checked
   // proactively in deleteObjectType for a friendly error).
   referenceObjectType   ObjectType?              @relation("FieldReferenceTargetType", fields: [referenceObjectTypeId], references: [id], onDelete: Restrict)
+  // Config-level FK for AUTO_IDENTIFIER fields — see
+  // autoIdentifierEquipmentTypeCodeId above.
+  autoIdentifierEquipmentTypeCode EquipmentTypeCode? @relation(fields: [autoIdentifierEquipmentTypeCodeId], references: [id], onDelete: Restrict)
   visibleRoles          FieldVisibility[]
   tableRows              TableFieldRow[]
   ipAddressLinks         FieldIpAddressValue[]
   objectReferenceLinks   FieldObjectReferenceValue[]
+  autoIdentifierLinks    FieldAutoIdentifierValue[]
 
   @@unique([objectTypeId, key])
   @@index([objectTypeId])
   @@index([referenceObjectTypeId])
+  @@index([autoIdentifierEquipmentTypeCodeId])
   @@map("field_definitions")
 }
 
@@ -566,6 +615,13 @@ model ObjectInstance {
   // proactively for a friendly error, same pattern as deleteIpAddress.
   referencedByFields     FieldObjectReferenceValue[]     @relation("FieldObjectReferenceTarget")
   referencedByTableCells TableCellObjectReferenceValue[] @relation("TableCellObjectReferenceTarget")
+  // This passport's own AUTO_IDENTIFIER field values (28 August 2026, CMDB
+  // phase 3) — cascades when this passport is deleted, same as
+  // objectReferenceLinks above (losing the passport also frees its
+  // reserved (rack, code, seq) slot for reuse, which is fine — the
+  // identifier only ever needs to be unique among *currently existing*
+  // equipment).
+  autoIdentifierLinks    FieldAutoIdentifierValue[]
 
   @@index([objectTypeId])
   @@map("object_instances")
@@ -675,4 +731,85 @@ model TableCellObjectReferenceValue {
   @@index([targetLocationId])
   @@index([targetObjectInstanceId])
   @@map("table_cell_object_reference_values")
+}
+
+// ─────────────────────────────────────────────
+// EquipmentTypeCode — admin-managed dictionary of equipment-type codes
+// used by AUTO_IDENTIFIER fields (28 August 2026, CMDB phase 3), e.g.
+// "cs" = Коммутатор, "srv" = Сервер, per Table 2 of the Kazakhtelecom
+// naming standard (ДИТ/И-05-28.2-16). Deliberately its own small table,
+// not a rebirth of the OptionList feature that was built and rejected 25
+// August 2026 (see it-passports-design.md section 6.4) — OptionList was a
+// general, per-SELECT-field reusable list of free-text options that the
+// user chose not to keep; this is a single, fixed-purpose dictionary of
+// standardised codes that AUTO_IDENTIFIER fields pick from (not a SELECT
+// option source at all), seeded from the standard's own Table 2 so it's
+// useful out of the box, and open to admin edits if new equipment types
+// appear or the standard is revised.
+// ─────────────────────────────────────────────
+
+model EquipmentTypeCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique
+  label     String
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  fields              FieldDefinition[]
+  autoIdentifierLinks FieldAutoIdentifierValue[]
+
+  @@map("equipment_type_codes")
+}
+
+// ─────────────────────────────────────────────
+// FieldAutoIdentifierValue — real relational backing + uniqueness guard for
+// FieldType.AUTO_IDENTIFIER (28 August 2026, CMDB phase 3). One row per
+// (passport, field), recording exactly which rack + equipment-type code +
+// sequence number the currently-stored identifier was computed from. The
+// UNIQUE constraint on (targetLocationId, equipmentTypeCodeId, seq) is
+// what actually prevents two passports from ever ending up with the same
+// identifier in the same rack — generateAutoIdentifierValue
+// (passports/auto-identifier-utils.ts) computes the next seq via MAX()
+// inside the same transaction as the insert, so a concurrent save racing
+// for the same (rack, code) pair fails loudly on this constraint rather
+// than silently producing a duplicate identifier (see that function's doc
+// comment for why a full retry loop was judged not worth the complexity
+// at this app's scale — same risk posture as the plain pre-checks used
+// elsewhere, e.g. findSibling in locations/actions.ts).
+//
+// Once generated, an identifier is treated as permanent — see
+// syncAutoIdentifierValues's doc comment: unlike every other reference
+// type in this app (which delete-then-recreate their mirror row on every
+// passport save), a row here is written once and then left alone, even if
+// the passport's rack field is edited afterward. Regenerating on every
+// save would risk reissuing a seq that's already been physically printed
+// on equipment.
+//
+// onDelete: Restrict on both targetLocation and equipmentTypeCode mirrors
+// FieldObjectReferenceValue: neither the rack nor the code can be deleted
+// while an identifier still depends on it.
+// ─────────────────────────────────────────────
+
+model FieldAutoIdentifierValue {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectInstanceId    String   @map("object_instance_id") @db.Uuid
+  fieldDefinitionId   String   @map("field_definition_id") @db.Uuid
+  targetLocationId    String   @map("target_location_id") @db.Uuid
+  equipmentTypeCodeId String   @map("equipment_type_code_id") @db.Uuid
+  seq                 Int
+  value               String
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  objectInstance    ObjectInstance    @relation(fields: [objectInstanceId], references: [id], onDelete: Cascade)
+  fieldDefinition   FieldDefinition   @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  targetLocation    Location          @relation(fields: [targetLocationId], references: [id], onDelete: Restrict)
+  equipmentTypeCode EquipmentTypeCode @relation(fields: [equipmentTypeCodeId], references: [id], onDelete: Restrict)
+
+  @@unique([objectInstanceId, fieldDefinitionId])
+  @@unique([targetLocationId, equipmentTypeCodeId, seq])
+  @@index([targetLocationId])
+  @@index([equipmentTypeCodeId])
+  @@map("field_auto_identifier_values")
 }

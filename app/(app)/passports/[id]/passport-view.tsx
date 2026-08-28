@@ -61,7 +61,14 @@ function formatFieldValue(type: string, value: unknown): ReactNode {
       </a>
     );
   }
-  return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+  if (type === 'AUTO_IDENTIFIER' && typeof value === 'string') {
+    return (
+      <code className="rounded bg-muted px-1.5 py-0.5 text-sm">{value}</code>
+    );
+  }
+  return (
+    <span className="whitespace-pre-wrap break-words">{String(value)}</span>
+  );
 }
 
 interface PassportViewCardProps {
@@ -124,7 +131,9 @@ export function PassportViewCard({ data }: PassportViewCardProps) {
                     )}
                   />
                 ) : (
-                  <div>{formatFieldValue(field.type, data.values[field.key])}</div>
+                  <div>
+                    {formatFieldValue(field.type, data.values[field.key])}
+                  </div>
                 )}
               </div>
             ))}

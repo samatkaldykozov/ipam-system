@@ -33,12 +33,26 @@ import {
 // CSV round-trip by free text name would be ambiguous whenever two targets
 // share a name — a passport with such a field can still be filled in
 // afterward through the regular form.
+//
+// AUTO_IDENTIFIER fields (28 August 2026, CMDB phase 3) are excluded too,
+// for a different reason: the value is never entered by hand at all — it's
+// computed server-side from the passport's rack field — so there is no
+// direction in which a CSV column for it would make sense (export could
+// show it, but import could never set it, and a column that silently does
+// nothing on import is worse than no column). A passport with such a field
+// still gets it generated as soon as the rack field is filled in through
+// the regular form.
 
 const MAX_IMPORT_ROWS = 2000;
 
 function csvFields(fields: FieldDefinition[]) {
   return fields
-    .filter((f) => f.type !== 'TABLE' && f.type !== 'OBJECT_REFERENCE')
+    .filter(
+      (f) =>
+        f.type !== 'TABLE' &&
+        f.type !== 'OBJECT_REFERENCE' &&
+        f.type !== 'AUTO_IDENTIFIER',
+    )
     .sort((a, b) => a.order - b.order);
 }
 

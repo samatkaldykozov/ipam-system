@@ -31,6 +31,11 @@ import {
   type ObjectReferenceColumn,
   type ObjectReferenceLabel,
 } from '@/app/(app)/passports/object-reference-utils';
+import {
+  autoIdentifierFields,
+  syncAutoIdentifierValues,
+  validateAutoIdentifierRackValues,
+} from '@/app/(app)/passports/auto-identifier-utils';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -592,17 +597,26 @@ export async function createPassport(
       validateObjectReferenceValues(objectRefFields, validated.data.values),
       validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
     ]);
+  // No existing passport yet, so no AUTO_IDENTIFIER value can already be
+  // generated — every such field on this type needs its rack filled in.
+  const autoIdErrors = validateAutoIdentifierRackValues(
+    objectType.fields,
+    validated.data.values,
+    null,
+  );
   const combinedIpRefErrors = {
     ...ipRefErrors,
     ...tableIpRefErrors,
     ...objectRefErrors,
     ...tableObjectRefErrors,
+    ...autoIdErrors,
   };
   if (Object.keys(combinedIpRefErrors).length > 0) {
     return { ok: false, fieldErrors: combinedIpRefErrors };
   }
 
   const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
+  const autoIdFields = autoIdentifierFields(objectType.fields);
 
   try {
     const instance = await prisma.$transaction(async (tx) => {
@@ -647,6 +661,25 @@ export async function createPassport(
       // ids, see syncTableCellIpAddressLinks's doc comment.
       await syncTableCellIpAddressLinks(tx, created.id, tableFields);
       await syncTableCellObjectReferenceLinks(tx, created.id, tableFields);
+
+      if (autoIdFields.length > 0) {
+        // Needs created.id, so this can only run after the create above —
+        // mutates validated.data.values in place, then that has to be
+        // persisted with a follow-up write, since the initial create above
+        // never had these keys in its `values` (see
+        // validatePassportValues's AUTO_IDENTIFIER branch).
+        await syncAutoIdentifierValues(
+          tx,
+          created.id,
+          objectType.fields,
+          validated.data.values,
+          null,
+        );
+        await tx.objectInstance.update({
+          where: { id: created.id },
+          data: { values: validated.data.values as Prisma.InputJsonValue },
+        });
+      }
 
       return created;
     });
@@ -707,6 +740,7 @@ export async function updatePassport(
   const tableFields = existing.objectType.fields.filter(
     (f) => f.type === 'TABLE',
   );
+  const existingValues = existing.values as unknown as Record<string, unknown>;
   const [ipRefErrors, tableIpRefErrors, objectRefErrors, tableObjectRefErrors] =
     await Promise.all([
       validateIpReferenceValues(ipRefFields, validated.data.values),
@@ -714,17 +748,27 @@ export async function updatePassport(
       validateObjectReferenceValues(objectRefFields, validated.data.values),
       validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
     ]);
+  // Fields that already have a generated value (existingValues) are
+  // skipped — editing the rack afterward doesn't retroactively invalidate
+  // an already-assigned identifier, see syncAutoIdentifierValues.
+  const autoIdErrors = validateAutoIdentifierRackValues(
+    existing.objectType.fields,
+    validated.data.values,
+    existingValues,
+  );
   const combinedIpRefErrors = {
     ...ipRefErrors,
     ...tableIpRefErrors,
     ...objectRefErrors,
     ...tableObjectRefErrors,
+    ...autoIdErrors,
   };
   if (Object.keys(combinedIpRefErrors).length > 0) {
     return { ok: false, fieldErrors: combinedIpRefErrors };
   }
 
   const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
+  const autoIdFields = autoIdentifierFields(existing.objectType.fields);
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -779,6 +823,23 @@ export async function updatePassport(
       // old links for this passport's previous rows.
       await syncTableCellIpAddressLinks(tx, id, tableFields);
       await syncTableCellObjectReferenceLinks(tx, id, tableFields);
+
+      if (autoIdFields.length > 0) {
+        // The initial update above never had these keys in `values` (see
+        // validatePassportValues's AUTO_IDENTIFIER branch) — mutate them in
+        // and persist with a follow-up write, same as createPassport.
+        await syncAutoIdentifierValues(
+          tx,
+          id,
+          existing.objectType.fields,
+          validated.data.values,
+          existingValues,
+        );
+        await tx.objectInstance.update({
+          where: { id },
+          data: { values: validated.data.values as Prisma.InputJsonValue },
+        });
+      }
     });
 
     await writeAudit('UPDATE', id, currentUser.id, { name });

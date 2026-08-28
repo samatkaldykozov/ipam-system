@@ -38,6 +38,7 @@ import {
   REFERENCE_TARGET_KIND_LABELS,
   TABLE_COLUMN_TYPES,
   slugify,
+  type EquipmentTypeCodeOption,
   type FieldDefinitionWithVisibility,
   type FieldTypeValue,
   type ObjectTypeOption,
@@ -52,6 +53,14 @@ interface FieldFormDialogProps {
   field?: FieldDefinitionWithVisibility | null;
   passportRoles: Role[];
   objectTypes: ObjectTypeOption[];
+  // Every other field currently on this ObjectType — used to populate the
+  // "rack field" picker for AUTO_IDENTIFIER (only OBJECT_REFERENCE fields
+  // targeting LOCATION are offered, see the filter where it's used below).
+  // Includes the field being edited too (harmless — it can never be
+  // OBJECT_REFERENCE+LOCATION and its own AUTO_IDENTIFIER rack source at
+  // the same time, since a field can only have one type).
+  allFields: FieldDefinitionWithVisibility[];
+  equipmentTypeCodes: EquipmentTypeCodeOption[];
 }
 
 type FormValues = {
@@ -75,6 +84,8 @@ type FormValues = {
   validateAsIp: boolean;
   referenceTargetKind: ReferenceTargetKindValue | '';
   referenceObjectTypeId: string;
+  autoIdentifierRackFieldKey: string;
+  autoIdentifierEquipmentTypeCodeId: string;
 };
 
 const EMPTY: FormValues = {
@@ -91,6 +102,8 @@ const EMPTY: FormValues = {
   validateAsIp: false,
   referenceTargetKind: '',
   referenceObjectTypeId: '',
+  autoIdentifierRackFieldKey: '',
+  autoIdentifierEquipmentTypeCodeId: '',
 };
 
 export function FieldFormDialog({
@@ -100,7 +113,17 @@ export function FieldFormDialog({
   field,
   passportRoles,
   objectTypes,
+  allFields,
+  equipmentTypeCodes,
 }: FieldFormDialogProps) {
+  // Candidates for the AUTO_IDENTIFIER "rack field" picker — only sibling
+  // fields (not this one) configured as OBJECT_REFERENCE -> LOCATION.
+  const rackFieldCandidates = allFields.filter(
+    (f) =>
+      f.id !== field?.id &&
+      f.type === 'OBJECT_REFERENCE' &&
+      f.referenceTargetKind === 'LOCATION',
+  );
   const isEdit = !!field;
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -164,6 +187,9 @@ export function FieldFormDialog({
         referenceTargetKind:
           (field.referenceTargetKind as ReferenceTargetKindValue | null) ?? '',
         referenceObjectTypeId: field.referenceObjectTypeId ?? '',
+        autoIdentifierRackFieldKey: field.autoIdentifierRackFieldKey ?? '',
+        autoIdentifierEquipmentTypeCodeId:
+          field.autoIdentifierEquipmentTypeCodeId ?? '',
       });
     } else {
       reset(EMPTY);
@@ -202,6 +228,17 @@ export function FieldFormDialog({
         !values.referenceObjectTypeId
       ) {
         toast.error('Выберите тип объекта, на который будет ссылаться поле');
+        return;
+      }
+    }
+
+    if (values.type === 'AUTO_IDENTIFIER') {
+      if (!values.autoIdentifierRackFieldKey) {
+        toast.error('Выберите поле со стойкой');
+        return;
+      }
+      if (!values.autoIdentifierEquipmentTypeCodeId) {
+        toast.error('Выберите код типа оборудования');
         return;
       }
     }
@@ -259,6 +296,14 @@ export function FieldFormDialog({
         values.type === 'OBJECT_REFERENCE' &&
         values.referenceTargetKind === 'OBJECT_TYPE'
           ? values.referenceObjectTypeId || null
+          : null,
+      autoIdentifierRackFieldKey:
+        values.type === 'AUTO_IDENTIFIER'
+          ? values.autoIdentifierRackFieldKey || null
+          : null,
+      autoIdentifierEquipmentTypeCodeId:
+        values.type === 'AUTO_IDENTIFIER'
+          ? values.autoIdentifierEquipmentTypeCodeId || null
           : null,
     };
 
@@ -496,6 +541,75 @@ export function FieldFormDialog({
             </div>
           ) : null}
 
+          {type === 'AUTO_IDENTIFIER' ? (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                Значение вычисляется автоматически при заполнении паспорта — из
+                выбранной стойки, кода типа оборудования и следующего свободного
+                номера. Ввести вручную нельзя. Один раз присвоенный
+                идентификатор больше не меняется, даже если стойку потом
+                изменить.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Поле со стойкой</Label>
+                {rackFieldCandidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    На этом типе объекта нет полей «Ссылка на объект CMDB»,
+                    настроенных на узел дерева локаций — сначала добавьте такое
+                    поле.
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="autoIdentifierRackFieldKey"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поле…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {rackFieldCandidates.map((rf) => (
+                            <SelectItem key={rf.id} value={rf.key}>
+                              {rf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Код типа оборудования</Label>
+                {equipmentTypeCodes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Справочник кодов пуст — добавьте коды на странице «Коды
+                    оборудования».
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="autoIdentifierEquipmentTypeCodeId"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите код…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {equipmentTypeCodes.map((ec) => (
+                            <SelectItem key={ec.id} value={ec.id}>
+                              {ec.code} — {ec.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {type === 'SELECT' ? (
             <div className="space-y-2 rounded-md border p-3">
               <Label>Варианты выбора</Label>
@@ -708,21 +822,23 @@ export function FieldFormDialog({
             </div>
           ) : null}
 
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div className="space-y-0.5">
-              <Label>Обязательное поле</Label>
-              <p className="text-xs text-muted-foreground">
-                Нельзя сохранить паспорт без заполнения.
-              </p>
+          {type !== 'AUTO_IDENTIFIER' ? (
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label>Обязательное поле</Label>
+                <p className="text-xs text-muted-foreground">
+                  Нельзя сохранить паспорт без заполнения.
+                </p>
+              </div>
+              <Controller
+                control={control}
+                name="required"
+                render={({ field: f }) => (
+                  <Switch checked={f.value} onCheckedChange={f.onChange} />
+                )}
+              />
             </div>
-            <Controller
-              control={control}
-              name="required"
-              render={({ field: f }) => (
-                <Switch checked={f.value} onCheckedChange={f.onChange} />
-              )}
-            />
-          </div>
+          ) : null}
 
           <div className="space-y-2 rounded-md border p-3">
             <div className="flex items-center justify-between">

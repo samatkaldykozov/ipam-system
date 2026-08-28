@@ -212,6 +212,24 @@ export const objectTypeSchema = z.object({
 
 export type ObjectTypeValues = z.infer<typeof objectTypeSchema>;
 
+// EquipmentTypeCode (CMDB phase 3, see schema.prisma) — deliberately not
+// restricted to lowercase like objectTypeCodeRegex above: the Kazakhtelecom
+// standard's own codes mix case (e.g. "Pdu"), so the code has to be able to
+// match the standard exactly, not just be a technical slug. No spaces, so
+// it still composes cleanly into an identifier string.
+const equipmentTypeCodeRegex = /^[A-Za-z0-9]+$/;
+
+export const equipmentTypeCodeSchema = z.object({
+  code: z
+    .string()
+    .min(1, 'Code is required')
+    .max(20, 'Code is too long')
+    .regex(equipmentTypeCodeRegex, 'Letters and numbers only, no spaces'),
+  label: z.string().min(1, 'Label is required').max(120, 'Label is too long'),
+});
+
+export type EquipmentTypeCodeValues = z.infer<typeof equipmentTypeCodeSchema>;
+
 export const FIELD_DEFINITION_TYPES = [
   'TEXT',
   'LONG_TEXT',
@@ -229,6 +247,11 @@ export const FIELD_DEFINITION_TYPES = [
   // or another passport) — see schema.prisma's FieldType.OBJECT_REFERENCE
   // doc comment and it-passports-design.md section 8 (CMDB phase 2).
   'OBJECT_REFERENCE',
+  // Computed composite equipment identifier (CMDB phase 3) — see
+  // schema.prisma's FieldType.AUTO_IDENTIFIER doc comment and
+  // it-passports-design.md section 8.1 item 3. Deliberately not in
+  // TABLE_COLUMN_TYPES below — scoped to regular fields only for now.
+  'AUTO_IDENTIFIER',
 ] as const;
 
 // Which kind of object an OBJECT_REFERENCE field/column points to — mirrors
@@ -320,6 +343,11 @@ export const fieldDefinitionSchema = z
     // schema.prisma.
     referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
     referenceObjectTypeId: z.string().min(1).optional().nullable(),
+    // Only meaningful when type is 'AUTO_IDENTIFIER' — see
+    // FieldDefinition.autoIdentifierRackFieldKey/
+    // autoIdentifierEquipmentTypeCodeId in schema.prisma.
+    autoIdentifierRackFieldKey: z.string().min(1).optional().nullable(),
+    autoIdentifierEquipmentTypeCodeId: z.string().min(1).optional().nullable(),
   })
   .refine((data) => data.type !== 'SELECT' || data.options.length > 0, {
     message: 'Add at least one option',
@@ -344,6 +372,23 @@ export const fieldDefinitionSchema = z
     {
       message: 'Choose which object type this field links to',
       path: ['referenceObjectTypeId'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'AUTO_IDENTIFIER' || !!data.autoIdentifierRackFieldKey,
+    {
+      message: 'Choose which field on this type supplies the rack',
+      path: ['autoIdentifierRackFieldKey'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'AUTO_IDENTIFIER' ||
+      !!data.autoIdentifierEquipmentTypeCodeId,
+    {
+      message: 'Choose an equipment-type code',
+      path: ['autoIdentifierEquipmentTypeCodeId'],
     },
   );
 

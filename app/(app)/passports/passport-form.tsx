@@ -551,6 +551,15 @@ export function PassportForm({
                       field.referenceObjectTypeId,
                     )}
                   />
+                ) : field.type === 'AUTO_IDENTIFIER' ? (
+                  <Input
+                    disabled
+                    className="font-mono text-muted-foreground"
+                    value={
+                      (values[field.key] as string) ||
+                      'будет присвоено после сохранения'
+                    }
+                  />
                 ) : field.type === 'TABLE' ? (
                   <TableFieldEditor
                     label={field.label}

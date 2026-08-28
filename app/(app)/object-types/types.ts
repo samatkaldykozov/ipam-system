@@ -24,6 +24,7 @@ export const FIELD_TYPE_LABELS: Record<string, string> = {
   TABLE: 'Таблица',
   IP_REFERENCE: 'Ссылка на IP-адрес (IPAM)',
   OBJECT_REFERENCE: 'Ссылка на объект CMDB',
+  AUTO_IDENTIFIER: 'Составной идентификатор (авто)',
 };
 
 export { REFERENCE_TARGET_KINDS, TABLE_COLUMN_TYPES };
@@ -63,6 +64,15 @@ export type ObjectTypeWithCounts = ObjectType & {
 // OBJECT_REFERENCE field's config — same idea as LocationParentOption in
 // locations/types.ts.
 export type ObjectTypeOption = Pick<ObjectType, 'id' | 'name' | 'code'>;
+
+// Lightweight shape for the equipment-type code picker on an
+// AUTO_IDENTIFIER field's config (CMDB phase 3) — see
+// app/(app)/equipment-type-codes/actions.ts.
+export type EquipmentTypeCodeOption = {
+  id: string;
+  code: string;
+  label: string;
+};
 
 export type FieldDefinitionWithVisibility = FieldDefinition & {
   visibleRoles: (FieldVisibility & { role: Role })[];

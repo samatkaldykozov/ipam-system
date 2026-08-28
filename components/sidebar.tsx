@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   ClipboardCheck,
   FileStack,
+  Hash,
   History,
   LayoutDashboard,
   LayoutTemplate,
@@ -30,6 +31,7 @@ import {
 const iconMap: Record<string, LucideIcon> = {
   ClipboardCheck,
   FileStack,
+  Hash,
   History,
   LayoutDashboard,
   LayoutTemplate,
@@ -48,15 +50,27 @@ const iconMap: Record<string, LucideIcon> = {
 // the caller falls back to whichever branch was last explicitly active
 // (persisted in localStorage), which also gives us "remembers the last
 // branch used" for free.
-const PASSPORT_ONLY_PREFIXES = ['/passports', '/object-types'];
-const IPAM_ONLY_PREFIXES = ['/networks', '/ip-addresses', '/locations', '/data-integrity'];
+const PASSPORT_ONLY_PREFIXES = [
+  '/passports',
+  '/object-types',
+  '/equipment-type-codes',
+];
+const IPAM_ONLY_PREFIXES = [
+  '/networks',
+  '/ip-addresses',
+  '/locations',
+  '/data-integrity',
+];
 const ACTIVE_BRANCH_STORAGE_KEY = 'ipam-active-branch';
 
 function branchForPathname(pathname: string): Branch | null {
   if (PASSPORT_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return 'passport';
   }
-  if (pathname === '/' || IPAM_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+  if (
+    pathname === '/' ||
+    IPAM_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+  ) {
     return 'ipam';
   }
   return null;
@@ -111,12 +125,12 @@ export function Sidebar({
   const activeBranch: Branch = hasPassportAccess ? lastBranch : 'ipam';
   const showSwitcher = hasPassportAccess; // only one branch worth switching between exists so far
 
-  const nav = (activeBranch === 'ipam' ? siteConfig.ipamNav : siteConfig.passportNav).filter(
-    (item) => {
-      if (!item.adminOnly) return true;
-      return activeBranch === 'ipam' ? isIpamAdmin : isPassportAdmin;
-    },
-  );
+  const nav = (
+    activeBranch === 'ipam' ? siteConfig.ipamNav : siteConfig.passportNav
+  ).filter((item) => {
+    if (!item.adminOnly) return true;
+    return activeBranch === 'ipam' ? isIpamAdmin : isPassportAdmin;
+  });
 
   function handleBranchChange(value: string) {
     if (value === activeBranch) return;

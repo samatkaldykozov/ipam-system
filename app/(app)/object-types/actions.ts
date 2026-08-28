@@ -315,6 +315,11 @@ type FieldDefinitionInput = {
   // schema.prisma.
   referenceTargetKind?: string | null;
   referenceObjectTypeId?: string | null;
+  // Only meaningful when type is 'AUTO_IDENTIFIER' — see
+  // FieldDefinition.autoIdentifierRackFieldKey/
+  // autoIdentifierEquipmentTypeCodeId in schema.prisma.
+  autoIdentifierRackFieldKey?: string | null;
+  autoIdentifierEquipmentTypeCodeId?: string | null;
 };
 
 // Pre-check run before create/update, mirroring the pattern used for
@@ -348,6 +353,62 @@ async function validateReferenceObjectTypeIds(
   const foundIds = new Set(found.map((f) => f.id));
   const missing = Array.from(wanted).find((id) => !foundIds.has(id));
   return missing ? 'Selected object type does not exist' : null;
+}
+
+// Pre-check for AUTO_IDENTIFIER fields (CMDB phase 3): the configured
+// autoIdentifierRackFieldKey must name a sibling field on the *same*
+// ObjectType (not a global fieldDefinitionId, since the two fields are
+// created/edited independently and the rack field may not exist yet at
+// the exact moment this one is being renamed — matching by key, which the
+// admin sees and controls directly, is simpler and avoids that ordering
+// problem) that is itself OBJECT_REFERENCE targeting LOCATION — anything
+// else would let an AUTO_IDENTIFIER field "point at" a plain text field
+// and fail confusingly at generation time instead of at save time here.
+// autoIdentifierEquipmentTypeCodeId is checked for existence the same way
+// validateReferenceObjectTypeIds checks referenceObjectTypeId above.
+async function validateAutoIdentifierConfig(
+  data: Pick<
+    FieldDefinitionInput,
+    'type' | 'autoIdentifierRackFieldKey' | 'autoIdentifierEquipmentTypeCodeId'
+  >,
+  objectTypeId: string,
+  excludeFieldId?: string,
+): Promise<{ rackFieldKey?: string; equipmentTypeCodeId?: string } | null> {
+  if (data.type !== 'AUTO_IDENTIFIER') return null;
+
+  const errors: { rackFieldKey?: string; equipmentTypeCodeId?: string } = {};
+
+  if (data.autoIdentifierRackFieldKey) {
+    const rackField = await prisma.fieldDefinition.findFirst({
+      where: {
+        objectTypeId,
+        key: data.autoIdentifierRackFieldKey,
+        ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+      },
+      select: { type: true, referenceTargetKind: true },
+    });
+    if (
+      !rackField ||
+      rackField.type !== 'OBJECT_REFERENCE' ||
+      rackField.referenceTargetKind !== 'LOCATION'
+    ) {
+      errors.rackFieldKey =
+        'Selected field must be an OBJECT_REFERENCE field on this type, linking to a location';
+    }
+  }
+
+  if (data.autoIdentifierEquipmentTypeCodeId) {
+    const code = await prisma.equipmentTypeCode.findUnique({
+      where: { id: data.autoIdentifierEquipmentTypeCodeId },
+      select: { id: true },
+    });
+    if (!code) {
+      errors.equipmentTypeCodeId =
+        'Selected equipment-type code does not exist';
+    }
+  }
+
+  return Object.keys(errors).length > 0 ? errors : null;
 }
 
 // Returns the `order` value a field should be placed right after, so it
@@ -433,6 +494,24 @@ export async function createFieldDefinition(
     };
   }
 
+  const autoIdErrors = await validateAutoIdentifierConfig(data, objectTypeId);
+  if (autoIdErrors) {
+    return {
+      ok: false,
+      fieldErrors: {
+        ...(autoIdErrors.rackFieldKey
+          ? { autoIdentifierRackFieldKey: autoIdErrors.rackFieldKey }
+          : {}),
+        ...(autoIdErrors.equipmentTypeCodeId
+          ? {
+              autoIdentifierEquipmentTypeCodeId:
+                autoIdErrors.equipmentTypeCodeId,
+            }
+          : {}),
+      },
+    };
+  }
+
   // Place the new field right after the last existing field of the same
   // section (or at the very end, for a new section) — see
   // nextOrderForSection above for why this has to account for section
@@ -461,7 +540,7 @@ export async function createFieldDefinition(
           helpText: data.helpText || null,
           type: data.type as FieldType,
           order: insertAfterOrder + 1,
-          required: data.required,
+          required: data.type === 'AUTO_IDENTIFIER' ? false : data.required,
           visibleToAll: data.visibleToAll,
           validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
           referenceTargetKind:
@@ -470,6 +549,14 @@ export async function createFieldDefinition(
             data.type === 'OBJECT_REFERENCE' &&
             data.referenceTargetKind === 'OBJECT_TYPE'
               ? data.referenceObjectTypeId
+              : null,
+          autoIdentifierRackFieldKey:
+            data.type === 'AUTO_IDENTIFIER'
+              ? data.autoIdentifierRackFieldKey
+              : null,
+          autoIdentifierEquipmentTypeCodeId:
+            data.type === 'AUTO_IDENTIFIER'
+              ? data.autoIdentifierEquipmentTypeCodeId
               : null,
           options:
             data.type === 'SELECT'
@@ -548,6 +635,28 @@ export async function updateFieldDefinition(
     };
   }
 
+  const autoIdErrors = await validateAutoIdentifierConfig(
+    data,
+    existing.objectTypeId,
+    fieldId,
+  );
+  if (autoIdErrors) {
+    return {
+      ok: false,
+      fieldErrors: {
+        ...(autoIdErrors.rackFieldKey
+          ? { autoIdentifierRackFieldKey: autoIdErrors.rackFieldKey }
+          : {}),
+        ...(autoIdErrors.equipmentTypeCodeId
+          ? {
+              autoIdentifierEquipmentTypeCodeId:
+                autoIdErrors.equipmentTypeCodeId,
+            }
+          : {}),
+      },
+    };
+  }
+
   // Only reposition the field if its section is actually changing — normal
   // edits (label, type, options, …) that keep the same section shouldn't
   // touch `order` at all. When the section does change, the field needs to
@@ -593,7 +702,7 @@ export async function updateFieldDefinition(
           label: data.label,
           helpText: data.helpText || null,
           type: data.type as FieldType,
-          required: data.required,
+          required: data.type === 'AUTO_IDENTIFIER' ? false : data.required,
           visibleToAll: data.visibleToAll,
           validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
           referenceTargetKind:
@@ -602,6 +711,14 @@ export async function updateFieldDefinition(
             data.type === 'OBJECT_REFERENCE' &&
             data.referenceTargetKind === 'OBJECT_TYPE'
               ? data.referenceObjectTypeId
+              : null,
+          autoIdentifierRackFieldKey:
+            data.type === 'AUTO_IDENTIFIER'
+              ? data.autoIdentifierRackFieldKey
+              : null,
+          autoIdentifierEquipmentTypeCodeId:
+            data.type === 'AUTO_IDENTIFIER'
+              ? data.autoIdentifierEquipmentTypeCodeId
               : null,
           options:
             data.type === 'SELECT'

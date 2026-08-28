@@ -62,6 +62,12 @@ export const siteConfig = {
       adminOnly: true,
     },
     {
+      title: 'Коды оборудования',
+      href: '/equipment-type-codes',
+      icon: 'Hash',
+      adminOnly: true,
+    },
+    {
       title: 'Audit Log',
       href: '/audit-log',
       icon: 'History',

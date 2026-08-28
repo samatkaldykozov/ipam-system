@@ -39,9 +39,21 @@ export function validatePassportValues(
     if (field.type === 'TABLE') {
       const rows = rawTableRows[field.key] ?? [];
       if (field.required && rows.length === 0) {
-        fieldErrors[field.key] = `«${field.label}»: добавьте хотя бы одну строку`;
+        fieldErrors[field.key] =
+          `«${field.label}»: добавьте хотя бы одну строку`;
       }
       tableRows[field.key] = rows.map((r) => r.cells ?? {});
+      continue;
+    }
+
+    if (field.type === 'AUTO_IDENTIFIER') {
+      // Never entered by hand — computed server-side by
+      // syncAutoIdentifierValues (auto-identifier-utils.ts), called from
+      // createPassport/updatePassport *after* this validation step (it
+      // needs the real ObjectInstance id). Skip the generic required-check
+      // and raw-value capture entirely; the caller injects the computed
+      // value into `values` afterward — leaving the key out here is
+      // deliberate, not an oversight, see that function's doc comment.
       continue;
     }
 

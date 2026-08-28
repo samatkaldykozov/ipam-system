@@ -388,6 +388,29 @@ export async function deleteLocation(id: string): Promise<ActionResult> {
       };
     }
 
+    // AUTO_IDENTIFIER values (28 August 2026, CMDB phase 3) generated using
+    // this node as the rack are a real foreign key too (onDelete: Restrict
+    // — see FieldAutoIdentifierValue in schema.prisma), separate from the
+    // OBJECT_REFERENCE check above since a rack can be used by an
+    // AUTO_IDENTIFIER field without that ObjectType also having an
+    // OBJECT_REFERENCE field pointing at it directly (the AUTO_IDENTIFIER
+    // field reads the rack off that other field's value, but only
+    // FieldAutoIdentifierValue itself records the FK that blocks deletion).
+    const autoIdLinks = await prisma.fieldAutoIdentifierValue.findMany({
+      where: { targetLocationId: id },
+      take: 5,
+      include: { objectInstance: { select: { name: true } } },
+    });
+    if (autoIdLinks.length > 0) {
+      const names = Array.from(
+        new Set(autoIdLinks.map((l) => l.objectInstance.name)),
+      );
+      return {
+        ok: false,
+        message: `Cannot delete this location because equipment identifiers were generated using it as a rack, for passport(s): ${names.join(', ')}.`,
+      };
+    }
+
     await prisma.location.delete({ where: { id } });
     await writeAudit('DELETE', id, currentUser.id, {
       name: location.name,

@@ -9,6 +9,7 @@ import {
   getObjectTypeOptions,
   getPassportRoles,
 } from '@/app/(app)/object-types/actions';
+import { getEquipmentTypeCodeOptions } from '@/app/(app)/equipment-type-codes/actions';
 import { FieldsBuilder } from '@/app/(app)/object-types/[id]/fields-builder';
 
 export const dynamic = 'force-dynamic';
@@ -25,11 +26,13 @@ export default async function ObjectTypeDetailPage({
     redirect('/');
   }
 
-  const [objectType, passportRoles, objectTypes] = await Promise.all([
-    getObjectType(id),
-    getPassportRoles(),
-    getObjectTypeOptions(),
-  ]);
+  const [objectType, passportRoles, objectTypes, equipmentTypeCodes] =
+    await Promise.all([
+      getObjectType(id),
+      getPassportRoles(),
+      getObjectTypeOptions(),
+      getEquipmentTypeCodeOptions(),
+    ]);
 
   if (!objectType) {
     notFound();
@@ -56,6 +59,7 @@ export default async function ObjectTypeDetailPage({
             fields={objectType.fields}
             passportRoles={passportRoles}
             objectTypes={objectTypes}
+            equipmentTypeCodes={equipmentTypeCodes}
           />
         </CardContent>
       </Card>

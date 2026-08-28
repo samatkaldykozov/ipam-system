@@ -37,6 +37,7 @@ import { FieldFormDialog } from '@/app/(app)/object-types/[id]/field-form-dialog
 import { DeleteFieldDialog } from '@/app/(app)/object-types/[id]/delete-field-dialog';
 import {
   FIELD_TYPE_LABELS,
+  type EquipmentTypeCodeOption,
   type FieldDefinitionWithVisibility,
   type ObjectTypeOption,
 } from '@/app/(app)/object-types/types';
@@ -46,6 +47,7 @@ interface FieldsBuilderProps {
   fields: FieldDefinitionWithVisibility[];
   passportRoles: Role[];
   objectTypes: ObjectTypeOption[];
+  equipmentTypeCodes: EquipmentTypeCodeOption[];
 }
 
 // Fields come back ordered globally by `order`; group into contiguous runs
@@ -74,6 +76,7 @@ export function FieldsBuilder({
   fields,
   passportRoles,
   objectTypes,
+  equipmentTypeCodes,
 }: FieldsBuilderProps) {
   const [formOpen, setFormOpen] = React.useState(false);
   const [editTarget, setEditTarget] =
@@ -114,6 +117,8 @@ export function FieldsBuilder({
         field={editTarget}
         passportRoles={passportRoles}
         objectTypes={objectTypes}
+        allFields={fields}
+        equipmentTypeCodes={equipmentTypeCodes}
       />
       <DeleteFieldDialog
         open={!!deleteTarget}
@@ -164,10 +169,14 @@ export function FieldsBuilder({
               </TableHeader>
               <TableBody>
                 {group.fields.map((field) => {
-                  const globalIndex = fields.findIndex((f) => f.id === field.id);
+                  const globalIndex = fields.findIndex(
+                    (f) => f.id === field.id,
+                  );
                   return (
                     <TableRow key={field.id}>
-                      <TableCell className="font-medium">{field.label}</TableCell>
+                      <TableCell className="font-medium">
+                        {field.label}
+                      </TableCell>
                       <TableCell className="font-mono text-sm text-muted-foreground">
                         {field.key}
                       </TableCell>
@@ -211,7 +220,9 @@ export function FieldsBuilder({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            disabled={globalIndex === 0 || movingId === field.id}
+                            disabled={
+                              globalIndex === 0 || movingId === field.id
+                            }
                             onClick={() => handleMove(field.id, 'up')}
                           >
                             <ArrowUp className="h-4 w-4" />
