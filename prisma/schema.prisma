@@ -110,8 +110,33 @@ enum FieldType {
   // the database level (see FieldIpAddressValue.ipAddress below), not just
   // advised against.
   IP_REFERENCE
+  // Generalization of IP_REFERENCE (28 August 2026, CMDB phase 2 — see
+  // it-passports-design.md section 8) to any object in the CMDB, not just
+  // IpAddress: a field of this type holds a hard link to either a Location
+  // tree node (containment — "this server lives in this rack") or another
+  // passport (dependency — "this application runs on this server"), never
+  // free text. Which of the two — and, for a passport target, which
+  // ObjectType it must be — is fixed per field by the admin (see
+  // FieldDefinition.referenceTargetKind/referenceObjectTypeId below), not
+  // chosen per value. The value stored in ObjectInstance.values is still
+  // just the target's id (same "one JSON blob" pattern as every other
+  // field type); FieldObjectReferenceValue is the real relational mirror,
+  // exactly the way FieldIpAddressValue backs IP_REFERENCE.
+  OBJECT_REFERENCE
 
   @@map("field_type")
+}
+
+// Which kind of CMDB object an OBJECT_REFERENCE field (or TABLE column of
+// that type) points to — set once per field by the admin, not per value.
+// LOCATION covers containment ("in which rack"); OBJECT_TYPE covers
+// dependency on another passport, scoped to one specific ObjectType via
+// FieldDefinition.referenceObjectTypeId (e.g. "must be a Server passport").
+enum ReferenceTargetKind {
+  LOCATION
+  OBJECT_TYPE
+
+  @@map("reference_target_kind")
 }
 
 // ─────────────────────────────────────────────
@@ -215,6 +240,13 @@ model Location {
   parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children Location[] @relation("LocationHierarchy")
   networks Network[]
+  // OBJECT_REFERENCE fields/table-columns (target kind LOCATION) currently
+  // pointing at this node — see FieldObjectReferenceValue/
+  // TableCellObjectReferenceValue. onDelete: Restrict on those tables'
+  // targetLocation is what actually stops an in-use node from being
+  // deleted; deleteLocation checks these proactively for a friendly error.
+  referencedByFields     FieldObjectReferenceValue[]
+  referencedByTableCells TableCellObjectReferenceValue[]
 
   @@index([parentId])
   @@map("locations")
@@ -341,6 +373,12 @@ model ObjectType {
 
   fields    FieldDefinition[]
   instances ObjectInstance[]
+  // FieldDefinitions elsewhere (on any ObjectType) whose OBJECT_REFERENCE
+  // is configured to only accept passports of this type — config-level
+  // only (which type a picker is scoped to), not a per-value link; see
+  // FieldDefinition.referenceObjectType below. deleteObjectType checks
+  // this so removing a type doesn't strand another type's field config.
+  fieldsReferencingThisType FieldDefinition[] @relation("FieldReferenceTargetType")
 
   @@map("object_types")
 }
@@ -380,16 +418,33 @@ model FieldDefinition {
   // form uses this flag to look up whether the typed value matches an
   // existing IpAddress and shows a non-blocking warning if it doesn't.
   validateAsIp Boolean   @default(false) @map("validate_as_ip")
+  // Only meaningful for OBJECT_REFERENCE fields (28 August 2026, CMDB
+  // phase 2) — which kind of object this field points to. See
+  // ReferenceTargetKind and the FieldType.OBJECT_REFERENCE doc comment.
+  referenceTargetKind   ReferenceTargetKind? @map("reference_target_kind")
+  // Only meaningful when referenceTargetKind = OBJECT_TYPE: restricts the
+  // picker (and the server-side validation) to passports of this one
+  // ObjectType, e.g. a "Расположен на сервере" field on a VM's passport
+  // type pointing only at Server passports. Left null for
+  // referenceTargetKind = LOCATION, where any node in the tree is valid.
+  referenceObjectTypeId String?              @map("reference_object_type_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   objectType     ObjectType            @relation(fields: [objectTypeId], references: [id], onDelete: Cascade)
-  visibleRoles   FieldVisibility[]
-  tableRows      TableFieldRow[]
-  ipAddressLinks FieldIpAddressValue[]
+  // Config-level FK — restricts which passports an OBJECT_REFERENCE field
+  // may point to. onDelete: Restrict so an ObjectType can't be deleted
+  // while some other field is still configured to reference it (checked
+  // proactively in deleteObjectType for a friendly error).
+  referenceObjectType   ObjectType?              @relation("FieldReferenceTargetType", fields: [referenceObjectTypeId], references: [id], onDelete: Restrict)
+  visibleRoles          FieldVisibility[]
+  tableRows              TableFieldRow[]
+  ipAddressLinks         FieldIpAddressValue[]
+  objectReferenceLinks   FieldObjectReferenceValue[]
 
   @@unique([objectTypeId, key])
   @@index([objectTypeId])
+  @@index([referenceObjectTypeId])
   @@map("field_definitions")
 }
 
@@ -422,6 +477,49 @@ model FieldIpAddressValue {
   @@unique([objectInstanceId, fieldDefinitionId])
   @@index([ipAddressId])
   @@map("field_ip_address_values")
+}
+
+// ─────────────────────────────────────────────
+// FieldObjectReferenceValue — the real relational backing for FieldType.
+// OBJECT_REFERENCE fields (28 August 2026, CMDB phase 2 — generalizes
+// FieldIpAddressValue above from IpAddress targets to any CMDB object).
+// One row per (passport, field) pair, pointing at exactly one of
+// targetLocation or targetObjectInstance — never both, never neither;
+// which one is legal is fixed by the owning FieldDefinition's
+// referenceTargetKind. Enforced at the database level by a CHECK
+// constraint (hand-written in the migration — Prisma's schema language has
+// no first-class way to express "exactly one of two nullable columns is
+// set", so it isn't modeled here, only the columns and their FKs are).
+// onDelete: Restrict on both target relations is what stops an in-use
+// Location or passport from being deleted; the owning passport itself
+// still cascades (deleting the referencing side, not the target, is always
+// fine — see objectInstance below).
+// ─────────────────────────────────────────────
+
+model FieldObjectReferenceValue {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectInstanceId       String   @map("object_instance_id") @db.Uuid
+  fieldDefinitionId      String   @map("field_definition_id") @db.Uuid
+  targetLocationId       String?  @map("target_location_id") @db.Uuid
+  targetObjectInstanceId String?  @map("target_object_instance_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // The passport this field belongs to (the referencing side) — cascades,
+  // same as FieldIpAddressValue.objectInstance.
+  objectInstance ObjectInstance @relation("FieldObjectReferenceOwner", fields: [objectInstanceId], references: [id], onDelete: Cascade)
+  fieldDefinition FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  targetLocation       Location?       @relation(fields: [targetLocationId], references: [id], onDelete: Restrict)
+  // The passport being pointed at (the referenced side) — deliberately a
+  // different relation name than objectInstance above, since one
+  // ObjectInstance can appear on both sides of this table at once (it owns
+  // its own OBJECT_REFERENCE fields, and other passports can point at it).
+  targetObjectInstance ObjectInstance? @relation("FieldObjectReferenceTarget", fields: [targetObjectInstanceId], references: [id], onDelete: Restrict)
+
+  @@unique([objectInstanceId, fieldDefinitionId])
+  @@index([targetLocationId])
+  @@index([targetObjectInstanceId])
+  @@map("field_object_reference_values")
 }
 
 // ─────────────────────────────────────────────
@@ -458,6 +556,16 @@ model ObjectInstance {
   responsible  ObjectInstanceResponsible[]
   tableRows    TableFieldRow[]
   ipAddressLinks FieldIpAddressValue[]
+  // This passport's own OBJECT_REFERENCE field values (the referencing
+  // side) — cascades when this passport is deleted, same as ipAddressLinks.
+  objectReferenceLinks FieldObjectReferenceValue[] @relation("FieldObjectReferenceOwner")
+  // Other passports' OBJECT_REFERENCE fields/table-columns currently
+  // pointing AT this passport (the referenced side) — onDelete: Restrict
+  // on those tables' targetObjectInstance is what stops this passport from
+  // being deleted while still referenced; deletePassport checks these
+  // proactively for a friendly error, same pattern as deleteIpAddress.
+  referencedByFields     FieldObjectReferenceValue[]     @relation("FieldObjectReferenceTarget")
+  referencedByTableCells TableCellObjectReferenceValue[] @relation("TableCellObjectReferenceTarget")
 
   @@index([objectTypeId])
   @@map("object_instances")
@@ -502,6 +610,11 @@ model TableFieldRow {
   // "delete-then-recreate" sync on every passport save — see actions.ts)
   // automatically cleans up its old links, no manual delete needed.
   ipAddressLinks TableCellIpAddressValue[]
+  // Table-column counterpart of ObjectInstance.objectReferenceLinks — same
+  // Cascade reasoning: deleting/recreating this row (the usual
+  // "delete-then-recreate" sync on every passport save) cleans these up
+  // automatically.
+  objectReferenceLinks TableCellObjectReferenceValue[]
 
   @@index([objectInstanceId])
   @@index([fieldDefinitionId])
@@ -534,4 +647,32 @@ model TableCellIpAddressValue {
   @@unique([tableFieldRowId, columnKey])
   @@index([ipAddressId])
   @@map("table_cell_ip_address_values")
+}
+
+// ─────────────────────────────────────────────
+// TableCellObjectReferenceValue — table-column counterpart of
+// FieldObjectReferenceValue (28 August 2026, CMDB phase 2), exactly the
+// way TableCellIpAddressValue is the table-column counterpart of
+// FieldIpAddressValue above. One row per (table row, column) pointing at
+// exactly one of targetLocation/targetObjectInstance — same CHECK
+// constraint as FieldObjectReferenceValue, hand-written in the migration.
+// ─────────────────────────────────────────────
+
+model TableCellObjectReferenceValue {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableFieldRowId        String   @map("table_field_row_id") @db.Uuid
+  columnKey              String   @map("column_key")
+  targetLocationId       String?  @map("target_location_id") @db.Uuid
+  targetObjectInstanceId String?  @map("target_object_instance_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tableFieldRow        TableFieldRow   @relation(fields: [tableFieldRowId], references: [id], onDelete: Cascade)
+  targetLocation       Location?       @relation(fields: [targetLocationId], references: [id], onDelete: Restrict)
+  targetObjectInstance ObjectInstance? @relation("TableCellObjectReferenceTarget", fields: [targetObjectInstanceId], references: [id], onDelete: Restrict)
+
+  @@unique([tableFieldRowId, columnKey])
+  @@index([targetLocationId])
+  @@index([targetObjectInstanceId])
+  @@map("table_cell_object_reference_values")
 }

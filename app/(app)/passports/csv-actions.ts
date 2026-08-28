@@ -25,14 +25,26 @@ import {
 // upserts by CIDR, a natural unique key), ObjectInstance has no such key,
 // so import here always creates new passports rather than updating
 // existing ones by name.
+//
+// OBJECT_REFERENCE fields (28 August 2026, CMDB phase 2) are excluded from
+// both directions too, for the same reason as TABLE: unlike IP_REFERENCE,
+// a value could need to resolve against either the Location tree or a set
+// of passports (depending on the field's configured target kind), and a
+// CSV round-trip by free text name would be ambiguous whenever two targets
+// share a name — a passport with such a field can still be filled in
+// afterward through the regular form.
 
 const MAX_IMPORT_ROWS = 2000;
 
-function nonTableFields(fields: FieldDefinition[]) {
-  return fields.filter((f) => f.type !== 'TABLE').sort((a, b) => a.order - b.order);
+function csvFields(fields: FieldDefinition[]) {
+  return fields
+    .filter((f) => f.type !== 'TABLE' && f.type !== 'OBJECT_REFERENCE')
+    .sort((a, b) => a.order - b.order);
 }
 
-export async function exportPassportsCsv(objectTypeId: string): Promise<string> {
+export async function exportPassportsCsv(
+  objectTypeId: string,
+): Promise<string> {
   const currentUser = await getCurrentUser();
   if (!currentUser || !canEditPassports(currentUser.passportRole)) {
     return generateCsv(['name'], []);
@@ -46,7 +58,7 @@ export async function exportPassportsCsv(objectTypeId: string): Promise<string> 
     return generateCsv(['name'], []);
   }
 
-  const fields = nonTableFields(objectType.fields);
+  const fields = csvFields(objectType.fields);
   const headers = ['name', ...fields.map((f) => f.key)];
   const ipRefKeys = new Set(ipReferenceFields(fields).map((f) => f.key));
 
@@ -127,7 +139,7 @@ export async function importPassportsCsv(
     };
   }
 
-  const fields = nonTableFields(objectType.fields);
+  const fields = csvFields(objectType.fields);
   const ipRefFields = ipReferenceFields(fields);
 
   const records = parseCsv(csvText);
@@ -182,7 +194,10 @@ export async function importPassportsCsv(
     const validated = validatePassportValues(fields, rawValues, {});
     if (!validated.ok) {
       const firstError = Object.values(validated.fieldErrors)[0];
-      errors.push({ row: rowNum, message: firstError ?? 'Некорректная строка' });
+      errors.push({
+        row: rowNum,
+        message: firstError ?? 'Некорректная строка',
+      });
       continue;
     }
 

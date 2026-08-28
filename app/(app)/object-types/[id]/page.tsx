@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { getCurrentUser, isPassportAdmin } from '@/lib/auth';
 import {
   getObjectType,
+  getObjectTypeOptions,
   getPassportRoles,
 } from '@/app/(app)/object-types/actions';
 import { FieldsBuilder } from '@/app/(app)/object-types/[id]/fields-builder';
@@ -24,9 +25,10 @@ export default async function ObjectTypeDetailPage({
     redirect('/');
   }
 
-  const [objectType, passportRoles] = await Promise.all([
+  const [objectType, passportRoles, objectTypes] = await Promise.all([
     getObjectType(id),
     getPassportRoles(),
+    getObjectTypeOptions(),
   ]);
 
   if (!objectType) {
@@ -53,6 +55,7 @@ export default async function ObjectTypeDetailPage({
             objectTypeId={objectType.id}
             fields={objectType.fields}
             passportRoles={passportRoles}
+            objectTypes={objectTypes}
           />
         </CardContent>
       </Card>

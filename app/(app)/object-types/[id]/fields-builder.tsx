@@ -38,12 +38,14 @@ import { DeleteFieldDialog } from '@/app/(app)/object-types/[id]/delete-field-di
 import {
   FIELD_TYPE_LABELS,
   type FieldDefinitionWithVisibility,
+  type ObjectTypeOption,
 } from '@/app/(app)/object-types/types';
 
 interface FieldsBuilderProps {
   objectTypeId: string;
   fields: FieldDefinitionWithVisibility[];
   passportRoles: Role[];
+  objectTypes: ObjectTypeOption[];
 }
 
 // Fields come back ordered globally by `order`; group into contiguous runs
@@ -71,6 +73,7 @@ export function FieldsBuilder({
   objectTypeId,
   fields,
   passportRoles,
+  objectTypes,
 }: FieldsBuilderProps) {
   const [formOpen, setFormOpen] = React.useState(false);
   const [editTarget, setEditTarget] =
@@ -110,6 +113,7 @@ export function FieldsBuilder({
         objectTypeId={objectTypeId}
         field={editTarget}
         passportRoles={passportRoles}
+        objectTypes={objectTypes}
       />
       <DeleteFieldDialog
         open={!!deleteTarget}

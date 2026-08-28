@@ -34,10 +34,14 @@ import {
 import {
   FIELD_TYPES,
   FIELD_TYPE_LABELS,
+  REFERENCE_TARGET_KINDS,
+  REFERENCE_TARGET_KIND_LABELS,
   TABLE_COLUMN_TYPES,
   slugify,
   type FieldDefinitionWithVisibility,
   type FieldTypeValue,
+  type ObjectTypeOption,
+  type ReferenceTargetKindValue,
   type TableColumnType,
 } from '@/app/(app)/object-types/types';
 
@@ -47,6 +51,7 @@ interface FieldFormDialogProps {
   objectTypeId: string;
   field?: FieldDefinitionWithVisibility | null;
   passportRoles: Role[];
+  objectTypes: ObjectTypeOption[];
 }
 
 type FormValues = {
@@ -64,8 +69,12 @@ type FormValues = {
     label: string;
     type: TableColumnType;
     validateAsIp: boolean;
+    referenceTargetKind: ReferenceTargetKindValue | '';
+    referenceObjectTypeId: string;
   }[];
   validateAsIp: boolean;
+  referenceTargetKind: ReferenceTargetKindValue | '';
+  referenceObjectTypeId: string;
 };
 
 const EMPTY: FormValues = {
@@ -80,6 +89,8 @@ const EMPTY: FormValues = {
   options: [],
   tableColumns: [],
   validateAsIp: false,
+  referenceTargetKind: '',
+  referenceObjectTypeId: '',
 };
 
 export function FieldFormDialog({
@@ -88,6 +99,7 @@ export function FieldFormDialog({
   objectTypeId,
   field,
   passportRoles,
+  objectTypes,
 }: FieldFormDialogProps) {
   const isEdit = !!field;
   const [submitting, setSubmitting] = React.useState(false);
@@ -97,8 +109,16 @@ export function FieldFormDialog({
   const keyTouched = React.useRef(false);
 
   const form = useForm<FormValues>({ defaultValues: EMPTY });
-  const { control, register, handleSubmit, watch, setValue, getValues, reset, formState } =
-    form;
+  const {
+    control,
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    getValues,
+    reset,
+    formState,
+  } = form;
 
   const optionsArray = useFieldArray({ control, name: 'options' });
   const columnsArray = useFieldArray({ control, name: 'tableColumns' });
@@ -130,10 +150,20 @@ export function FieldFormDialog({
                 label: string;
                 type: TableColumnType;
                 validateAsIp?: boolean;
+                referenceTargetKind?: ReferenceTargetKindValue | null;
+                referenceObjectTypeId?: string | null;
               }[]
-            ).map((c) => ({ ...c, validateAsIp: c.validateAsIp ?? false }))
+            ).map((c) => ({
+              ...c,
+              validateAsIp: c.validateAsIp ?? false,
+              referenceTargetKind: c.referenceTargetKind ?? '',
+              referenceObjectTypeId: c.referenceObjectTypeId ?? '',
+            }))
           : [],
         validateAsIp: field.validateAsIp,
+        referenceTargetKind:
+          (field.referenceTargetKind as ReferenceTargetKindValue | null) ?? '',
+        referenceObjectTypeId: field.referenceObjectTypeId ?? '',
       });
     } else {
       reset(EMPTY);
@@ -162,16 +192,50 @@ export function FieldFormDialog({
       return;
     }
 
+    if (values.type === 'OBJECT_REFERENCE') {
+      if (!values.referenceTargetKind) {
+        toast.error('Выберите, на что будет ссылаться поле');
+        return;
+      }
+      if (
+        values.referenceTargetKind === 'OBJECT_TYPE' &&
+        !values.referenceObjectTypeId
+      ) {
+        toast.error('Выберите тип объекта, на который будет ссылаться поле');
+        return;
+      }
+    }
+
     const tableColumns = values.tableColumns
       .map((c) => ({
         ...c,
         key: c.key.trim(),
         label: c.label.trim(),
         validateAsIp: c.type === 'TEXT' ? c.validateAsIp : false,
+        referenceTargetKind:
+          c.type === 'OBJECT_REFERENCE' ? c.referenceTargetKind || null : null,
+        referenceObjectTypeId:
+          c.type === 'OBJECT_REFERENCE' &&
+          c.referenceTargetKind === 'OBJECT_TYPE'
+            ? c.referenceObjectTypeId || null
+            : null,
       }))
       .filter((c) => c.key && c.label);
     if (values.type === 'TABLE' && tableColumns.length === 0) {
       toast.error('Добавьте хотя бы один столбец таблицы');
+      return;
+    }
+    const badReferenceColumn = tableColumns.find(
+      (c) =>
+        c.type === 'OBJECT_REFERENCE' &&
+        (!c.referenceTargetKind ||
+          (c.referenceTargetKind === 'OBJECT_TYPE' &&
+            !c.referenceObjectTypeId)),
+    );
+    if (badReferenceColumn) {
+      toast.error(
+        `Столбец «${badReferenceColumn.label}»: выберите, на что он будет ссылаться`,
+      );
       return;
     }
 
@@ -187,6 +251,15 @@ export function FieldFormDialog({
       options,
       tableColumns,
       validateAsIp: values.type === 'TEXT' ? values.validateAsIp : false,
+      referenceTargetKind:
+        values.type === 'OBJECT_REFERENCE'
+          ? values.referenceTargetKind || null
+          : null,
+      referenceObjectTypeId:
+        values.type === 'OBJECT_REFERENCE' &&
+        values.referenceTargetKind === 'OBJECT_TYPE'
+          ? values.referenceObjectTypeId || null
+          : null,
     };
 
     setSubmitting(true);
@@ -287,8 +360,8 @@ export function FieldFormDialog({
               )}
             />
             <p className="text-xs text-muted-foreground">
-              Техническое имя поля (для выгрузок и API). Только латиница,
-              цифры, подчёркивания.
+              Техническое имя поля (для выгрузок и API). Только латиница, цифры,
+              подчёркивания.
             </p>
             {formState.errors.key ? (
               <p className="text-sm text-destructive">
@@ -335,10 +408,10 @@ export function FieldFormDialog({
                 <Label>Это IP-адрес</Label>
                 <p className="text-xs text-muted-foreground">
                   При заполнении паспорта введённое значение сверяется со
-                  списком IP-адресов в IPAM — если адреса там нет, рядом с
-                  полем покажется предупреждение. Само значение
-                  по-прежнему хранится как текст, сохранить паспорт можно
-                  и с адресом, которого нет в IPAM.
+                  списком IP-адресов в IPAM — если адреса там нет, рядом с полем
+                  покажется предупреждение. Само значение по-прежнему хранится
+                  как текст, сохранить паспорт можно и с адресом, которого нет в
+                  IPAM.
                 </p>
               </div>
               <Controller
@@ -354,13 +427,72 @@ export function FieldFormDialog({
           {type === 'IP_REFERENCE' ? (
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">
-                При заполнении паспорта нужно будет выбрать реальный адрес
-                из IPAM через поиск — вписать произвольный текст нельзя.
-                В отличие от «Это IP-адрес» на текстовом поле (просто
-                подсказка), здесь значение — настоящая ссылка на запись в
-                IPAM: пока адрес выбран хотя бы в одном паспорте, удалить
-                его из IPAM не получится.
+                При заполнении паспорта нужно будет выбрать реальный адрес из
+                IPAM через поиск — вписать произвольный текст нельзя. В отличие
+                от «Это IP-адрес» на текстовом поле (просто подсказка), здесь
+                значение — настоящая ссылка на запись в IPAM: пока адрес выбран
+                хотя бы в одном паспорте, удалить его из IPAM не получится.
               </p>
+            </div>
+          ) : null}
+
+          {type === 'OBJECT_REFERENCE' ? (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                При заполнении паспорта нужно будет выбрать реальный объект
+                через поиск — вписать произвольный текст нельзя. Пока объект
+                выбран хотя бы в одном паспорте, удалить его не получится.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Ссылается на</Label>
+                <Controller
+                  control={control}
+                  name="referenceTargetKind"
+                  render={({ field: f }) => (
+                    <Select
+                      value={f.value}
+                      onValueChange={(v) => {
+                        f.onChange(v);
+                        setValue('referenceObjectTypeId', '');
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REFERENCE_TARGET_KINDS.map((k) => (
+                          <SelectItem key={k} value={k}>
+                            {REFERENCE_TARGET_KIND_LABELS[k]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              {watch('referenceTargetKind') === 'OBJECT_TYPE' ? (
+                <div className="space-y-1.5">
+                  <Label>Тип объекта</Label>
+                  <Controller
+                    control={control}
+                    name="referenceObjectTypeId"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите тип…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {objectTypes.map((ot) => (
+                            <SelectItem key={ot.id} value={ot.id}>
+                              {ot.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -481,12 +613,76 @@ export function FieldFormDialog({
                       </label>
                     ) : columnType === 'IP_REFERENCE' ? (
                       <p className="pl-0.5 text-xs text-muted-foreground">
-                        В каждой строке нужно будет выбрать реальный адрес
-                        из IPAM через поиск — вписать текст нельзя. Пока
-                        адрес выбран хотя бы в одной строке, удалить его из
-                        IPAM не получится (как и для обычного поля этого
-                        типа).
+                        В каждой строке нужно будет выбрать реальный адрес из
+                        IPAM через поиск — вписать текст нельзя. Пока адрес
+                        выбран хотя бы в одной строке, удалить его из IPAM не
+                        получится (как и для обычного поля этого типа).
                       </p>
+                    ) : columnType === 'OBJECT_REFERENCE' ? (
+                      <div className="space-y-2 pl-0.5">
+                        <p className="text-xs text-muted-foreground">
+                          В каждой строке нужно будет выбрать реальный объект
+                          через поиск — вписать текст нельзя.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Controller
+                            control={control}
+                            name={
+                              `tableColumns.${index}.referenceTargetKind` as const
+                            }
+                            render={({ field: f2 }) => (
+                              <Select
+                                value={f2.value}
+                                onValueChange={(v) => {
+                                  f2.onChange(v);
+                                  setValue(
+                                    `tableColumns.${index}.referenceObjectTypeId` as const,
+                                    '',
+                                  );
+                                }}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Ссылается на…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {REFERENCE_TARGET_KINDS.map((k) => (
+                                    <SelectItem key={k} value={k}>
+                                      {REFERENCE_TARGET_KIND_LABELS[k]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          />
+                          {watch(
+                            `tableColumns.${index}.referenceTargetKind`,
+                          ) === 'OBJECT_TYPE' ? (
+                            <Controller
+                              control={control}
+                              name={
+                                `tableColumns.${index}.referenceObjectTypeId` as const
+                              }
+                              render={({ field: f2 }) => (
+                                <Select
+                                  value={f2.value}
+                                  onValueChange={f2.onChange}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Тип объекта…" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {objectTypes.map((ot) => (
+                                      <SelectItem key={ot.id} value={ot.id}>
+                                        {ot.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
                     ) : null}
                   </div>
                 );
@@ -501,6 +697,8 @@ export function FieldFormDialog({
                     label: '',
                     type: 'TEXT',
                     validateAsIp: false,
+                    referenceTargetKind: '',
+                    referenceObjectTypeId: '',
                   })
                 }
               >

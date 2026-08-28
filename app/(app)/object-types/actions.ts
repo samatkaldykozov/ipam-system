@@ -60,6 +60,21 @@ export async function getObjectTypes() {
   });
 }
 
+// Lightweight list for the "reference target type" picker on an
+// OBJECT_REFERENCE field's config (field-form-dialog.tsx) — id/name/code
+// only, same idea as getAvailableLocationParents in locations/actions.ts.
+// Not scoped to passport-admin-only like getObjectTypesForPicker in
+// passports/actions.ts, since this is itself only reachable from a
+// passport-admin-gated screen (the field builder).
+export async function getObjectTypeOptions() {
+  const currentUser = await requirePassportAdmin();
+  if (!currentUser) return [];
+  return prisma.objectType.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, code: true },
+  });
+}
+
 export async function getObjectType(id: string) {
   return prisma.objectType.findUnique({
     where: { id },
@@ -220,7 +235,9 @@ export async function deleteObjectType(id: string): Promise<ActionResult> {
 
   const objectType = await prisma.objectType.findUnique({
     where: { id },
-    include: { _count: { select: { instances: true } } },
+    include: {
+      _count: { select: { instances: true, fieldsReferencingThisType: true } },
+    },
   });
   if (!objectType) {
     return { ok: false, message: 'Object type not found' };
@@ -229,6 +246,26 @@ export async function deleteObjectType(id: string): Promise<ActionResult> {
     return {
       ok: false,
       message: `Cannot delete this object type because ${objectType._count.instances} passport(s) of this type exist. Delete them first.`,
+    };
+  }
+  // Config-level FK Restrict (see FieldDefinition.referenceObjectType in
+  // schema.prisma) — some OBJECT_REFERENCE field elsewhere is still
+  // configured to only accept passports of this type. Check proactively
+  // for a friendly error rather than a raw FK failure.
+  if (objectType._count.fieldsReferencingThisType > 0) {
+    const referencingFields = await prisma.fieldDefinition.findMany({
+      where: { referenceObjectTypeId: id },
+      take: 5,
+      include: { objectType: { select: { name: true } } },
+    });
+    const names = Array.from(
+      new Set(
+        referencingFields.map((f) => `${f.objectType.name} → «${f.label}»`),
+      ),
+    );
+    return {
+      ok: false,
+      message: `Этот тип объекта используется как цель ссылки в полях: ${names.join(', ')} — сначала измените или удалите эти поля`,
     };
   }
 
@@ -269,9 +306,49 @@ type FieldDefinitionInput = {
     label: string;
     type: string;
     validateAsIp: boolean;
+    referenceTargetKind?: string | null;
+    referenceObjectTypeId?: string | null;
   }[];
   validateAsIp: boolean;
+  // Only meaningful when type is 'OBJECT_REFERENCE' — see
+  // FieldDefinition.referenceTargetKind/referenceObjectTypeId in
+  // schema.prisma.
+  referenceTargetKind?: string | null;
+  referenceObjectTypeId?: string | null;
 };
+
+// Pre-check run before create/update, mirroring the pattern used for
+// Location's parentId (locations/actions.ts): a bad referenceObjectTypeId
+// would otherwise fail at the FK level with an unfriendly raw error, for
+// both the field's own config and every OBJECT_REFERENCE column inside a
+// TABLE field's tableColumns.
+async function validateReferenceObjectTypeIds(
+  data: Pick<
+    FieldDefinitionInput,
+    'type' | 'referenceObjectTypeId' | 'tableColumns'
+  >,
+): Promise<string | null> {
+  const wanted = new Set<string>();
+  if (data.type === 'OBJECT_REFERENCE' && data.referenceObjectTypeId) {
+    wanted.add(data.referenceObjectTypeId);
+  }
+  if (data.type === 'TABLE') {
+    for (const col of data.tableColumns) {
+      if (col.type === 'OBJECT_REFERENCE' && col.referenceObjectTypeId) {
+        wanted.add(col.referenceObjectTypeId);
+      }
+    }
+  }
+  if (wanted.size === 0) return null;
+
+  const found = await prisma.objectType.findMany({
+    where: { id: { in: Array.from(wanted) } },
+    select: { id: true },
+  });
+  const foundIds = new Set(found.map((f) => f.id));
+  const missing = Array.from(wanted).find((id) => !foundIds.has(id));
+  return missing ? 'Selected object type does not exist' : null;
+}
 
 // Returns the `order` value a field should be placed right after, so it
 // lands adjacent to its section's other fields (or at the very end of the
@@ -348,6 +425,14 @@ export async function createFieldDefinition(
     };
   }
 
+  const refTypeError = await validateReferenceObjectTypeIds(data);
+  if (refTypeError) {
+    return {
+      ok: false,
+      fieldErrors: { referenceObjectTypeId: refTypeError },
+    };
+  }
+
   // Place the new field right after the last existing field of the same
   // section (or at the very end, for a new section) — see
   // nextOrderForSection above for why this has to account for section
@@ -379,6 +464,13 @@ export async function createFieldDefinition(
           required: data.required,
           visibleToAll: data.visibleToAll,
           validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
+          referenceTargetKind:
+            data.type === 'OBJECT_REFERENCE' ? data.referenceTargetKind : null,
+          referenceObjectTypeId:
+            data.type === 'OBJECT_REFERENCE' &&
+            data.referenceTargetKind === 'OBJECT_TYPE'
+              ? data.referenceObjectTypeId
+              : null,
           options:
             data.type === 'SELECT'
               ? (data.options as Prisma.InputJsonValue)
@@ -432,15 +524,28 @@ export async function updateFieldDefinition(
   if (data.key !== existing.key) {
     const clash = await prisma.fieldDefinition.findUnique({
       where: {
-        objectTypeId_key: { objectTypeId: existing.objectTypeId, key: data.key },
+        objectTypeId_key: {
+          objectTypeId: existing.objectTypeId,
+          key: data.key,
+        },
       },
     });
     if (clash) {
       return {
         ok: false,
-        fieldErrors: { key: 'A field with this key already exists on this type' },
+        fieldErrors: {
+          key: 'A field with this key already exists on this type',
+        },
       };
     }
+  }
+
+  const refTypeError = await validateReferenceObjectTypeIds(data);
+  if (refTypeError) {
+    return {
+      ok: false,
+      fieldErrors: { referenceObjectTypeId: refTypeError },
+    };
   }
 
   // Only reposition the field if its section is actually changing — normal
@@ -452,14 +557,20 @@ export async function updateFieldDefinition(
   const normalizedSection = data.sectionName || null;
   const sectionChanged = normalizedSection !== existing.sectionName;
   const insertAfterOrder = sectionChanged
-    ? await nextOrderForSection(existing.objectTypeId, normalizedSection, fieldId)
+    ? await nextOrderForSection(
+        existing.objectTypeId,
+        normalizedSection,
+        fieldId,
+      )
     : null;
 
   try {
     // FieldVisibility rows are replaced wholesale rather than diffed —
     // simpler, and the set is small (a handful of Passport-scope roles).
     const ops: Prisma.PrismaPromise<unknown>[] = [
-      prisma.fieldVisibility.deleteMany({ where: { fieldDefinitionId: fieldId } }),
+      prisma.fieldVisibility.deleteMany({
+        where: { fieldDefinitionId: fieldId },
+      }),
     ];
     if (insertAfterOrder !== null) {
       ops.push(
@@ -485,6 +596,13 @@ export async function updateFieldDefinition(
           required: data.required,
           visibleToAll: data.visibleToAll,
           validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
+          referenceTargetKind:
+            data.type === 'OBJECT_REFERENCE' ? data.referenceTargetKind : null,
+          referenceObjectTypeId:
+            data.type === 'OBJECT_REFERENCE' &&
+            data.referenceTargetKind === 'OBJECT_TYPE'
+              ? data.referenceObjectTypeId
+              : null,
           options:
             data.type === 'SELECT'
               ? (data.options as Prisma.InputJsonValue)
@@ -512,11 +630,15 @@ export async function updateFieldDefinition(
   }
 }
 
-export async function deleteFieldDefinition(fieldId: string): Promise<ActionResult> {
+export async function deleteFieldDefinition(
+  fieldId: string,
+): Promise<ActionResult> {
   const currentUser = await requirePassportAdmin();
   if (!currentUser) return PERMISSION_DENIED;
 
-  const field = await prisma.fieldDefinition.findUnique({ where: { id: fieldId } });
+  const field = await prisma.fieldDefinition.findUnique({
+    where: { id: fieldId },
+  });
   if (!field) {
     return { ok: false, message: 'Field not found' };
   }
@@ -550,7 +672,9 @@ export async function moveFieldDefinition(
   const currentUser = await requirePassportAdmin();
   if (!currentUser) return PERMISSION_DENIED;
 
-  const field = await prisma.fieldDefinition.findUnique({ where: { id: fieldId } });
+  const field = await prisma.fieldDefinition.findUnique({
+    where: { id: fieldId },
+  });
   if (!field) {
     return { ok: false, message: 'Field not found' };
   }
@@ -571,8 +695,14 @@ export async function moveFieldDefinition(
 
   try {
     await prisma.$transaction([
-      prisma.fieldDefinition.update({ where: { id: a.id }, data: { order: b.order } }),
-      prisma.fieldDefinition.update({ where: { id: b.id }, data: { order: a.order } }),
+      prisma.fieldDefinition.update({
+        where: { id: a.id },
+        data: { order: b.order },
+      }),
+      prisma.fieldDefinition.update({
+        where: { id: b.id },
+        data: { order: a.order },
+      }),
     ]);
     revalidatePath(`/object-types/${field.objectTypeId}`);
     return { ok: true };

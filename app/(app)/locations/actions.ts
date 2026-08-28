@@ -352,6 +352,42 @@ export async function deleteLocation(id: string): Promise<ActionResult> {
       };
     }
 
+    // An OBJECT_REFERENCE field (or column) on a passport can point at
+    // this node as a real foreign key (onDelete: Restrict — see
+    // FieldObjectReferenceValue/TableCellObjectReferenceValue in
+    // schema.prisma, CMDB phase 2), so deleting a referenced node would
+    // otherwise fail with a raw Prisma FK error. Check both first and name
+    // the passport(s) instead — same pattern as deleteIpAddress in
+    // ip-addresses/actions.ts.
+    const [links, tableCellLinks] = await Promise.all([
+      prisma.fieldObjectReferenceValue.findMany({
+        where: { targetLocationId: id },
+        take: 5,
+        include: { objectInstance: { select: { name: true } } },
+      }),
+      prisma.tableCellObjectReferenceValue.findMany({
+        where: { targetLocationId: id },
+        take: 5,
+        include: {
+          tableFieldRow: {
+            include: { objectInstance: { select: { name: true } } },
+          },
+        },
+      }),
+    ]);
+    if (links.length > 0 || tableCellLinks.length > 0) {
+      const names = Array.from(
+        new Set([
+          ...links.map((l) => l.objectInstance.name),
+          ...tableCellLinks.map((l) => l.tableFieldRow.objectInstance.name),
+        ]),
+      );
+      return {
+        ok: false,
+        message: `Cannot delete this location because it's referenced by passport(s): ${names.join(', ')}. Remove the reference there first.`,
+      };
+    }
+
     await prisma.location.delete({ where: { id } });
     await writeAudit('DELETE', id, currentUser.id, {
       name: location.name,

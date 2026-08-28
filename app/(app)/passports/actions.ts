@@ -20,6 +20,17 @@ import {
   validateTableIpReferenceValues,
   type IpAddressRefLabel,
 } from '@/app/(app)/passports/ip-reference-utils';
+import {
+  objectReferenceColumns,
+  objectReferenceFields,
+  resolveObjectReferenceLabels,
+  syncFieldObjectReferenceLinks,
+  syncTableCellObjectReferenceLinks,
+  validateObjectReferenceValues,
+  validateTableObjectReferenceValues,
+  type ObjectReferenceColumn,
+  type ObjectReferenceLabel,
+} from '@/app/(app)/passports/object-reference-utils';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -213,6 +224,37 @@ export async function getPassportView(id: string) {
     }
   }
 
+  // Same resolution for OBJECT_REFERENCE values (28 August 2026, CMDB
+  // phase 2) — a bare Location or ObjectInstance id, resolved to its
+  // display title. Split up front by each field's configured target kind,
+  // same reasoning as resolveObjectReferenceLabels's doc comment.
+  const objectRefFields = objectReferenceFields(visibleFields);
+  if (objectRefFields.length > 0) {
+    const locationIds: string[] = [];
+    const instanceIds: string[] = [];
+    for (const field of objectRefFields) {
+      const v = values[field.key];
+      if (typeof v !== 'string' || !v) continue;
+      (field.referenceTargetKind === 'LOCATION'
+        ? locationIds
+        : instanceIds
+      ).push(v);
+    }
+    const { locations, instances } = await resolveObjectReferenceLabels(
+      locationIds,
+      instanceIds,
+    );
+    for (const field of objectRefFields) {
+      const v = values[field.key];
+      if (typeof v !== 'string' || !v) continue;
+      const label =
+        field.referenceTargetKind === 'LOCATION'
+          ? locations.get(v)
+          : instances.get(v);
+      values[field.key] = label?.title ?? v;
+    }
+  }
+
   const tableRows = instance.tableRows.filter((r) =>
     visibleFieldIds.has(r.fieldDefinitionId),
   );
@@ -239,15 +281,55 @@ export async function getPassportView(id: string) {
     tableRefIds.length > 0
       ? await resolveIpAddressLabels(tableRefIds)
       : new Map<string, IpAddressRefLabel>();
+
+  // Same resolution one level further down for OBJECT_REFERENCE table
+  // columns (28 August 2026) — mirrors the regular-field block above,
+  // split by target kind, over every visible TABLE field's rows at once.
+  const objectRefColumnsByFieldId = new Map<string, ObjectReferenceColumn[]>(
+    visibleFields
+      .filter((f) => f.type === 'TABLE')
+      .map((f) => [f.id, objectReferenceColumns(f)] as const),
+  );
+  const tableObjectRefLocationIds: string[] = [];
+  const tableObjectRefInstanceIds: string[] = [];
+  for (const row of tableRows) {
+    const columns = objectRefColumnsByFieldId.get(row.fieldDefinitionId) ?? [];
+    if (columns.length === 0) continue;
+    const cells = row.cells as unknown as Record<string, unknown>;
+    for (const column of columns) {
+      const v = cells[column.key];
+      if (typeof v !== 'string' || !v) continue;
+      (column.targetKind === 'LOCATION'
+        ? tableObjectRefLocationIds
+        : tableObjectRefInstanceIds
+      ).push(v);
+    }
+  }
+  const tableObjectRefLabels = await resolveObjectReferenceLabels(
+    tableObjectRefLocationIds,
+    tableObjectRefInstanceIds,
+  );
+
   const resolvedTableRows = tableRows.map((row) => {
     const keys = columnKeysByFieldId.get(row.fieldDefinitionId) ?? [];
-    if (keys.length === 0) return row;
+    const objectRefColumns =
+      objectRefColumnsByFieldId.get(row.fieldDefinitionId) ?? [];
+    if (keys.length === 0 && objectRefColumns.length === 0) return row;
     const cells = { ...(row.cells as unknown as Record<string, unknown>) };
     for (const key of keys) {
       const v = cells[key];
       if (typeof v === 'string' && v) {
         cells[key] = tableRefLabels.get(v)?.address ?? v;
       }
+    }
+    for (const column of objectRefColumns) {
+      const v = cells[column.key];
+      if (typeof v !== 'string' || !v) continue;
+      const label =
+        column.targetKind === 'LOCATION'
+          ? tableObjectRefLabels.locations.get(v)
+          : tableObjectRefLabels.instances.get(v);
+      cells[column.key] = label?.title ?? v;
     }
     return { ...row, cells: cells as unknown as typeof row.cells };
   });
@@ -354,6 +436,104 @@ export async function getIpAddressLabels(
 }
 
 // ─────────────────────────────────────────────
+// OBJECT_REFERENCE picker support (28 August 2026, CMDB phase 2) — same
+// idea as searchIpAddresses/getIpAddressLabels above, generalized to the
+// two possible target kinds. A field's target kind (and, for OBJECT_TYPE,
+// which type) is fixed by the admin, so the caller always knows up front
+// which search to run — there's no single "search anything" endpoint.
+// ─────────────────────────────────────────────
+
+export interface LocationReferenceSuggestion {
+  id: string;
+  name: string;
+  code: string;
+  kind: string;
+  parentName: string | null;
+}
+
+export async function searchLocationsForReference(
+  prefix: string,
+): Promise<LocationReferenceSuggestion[]> {
+  const currentUser = await requirePassportEditor();
+  if (!currentUser) return [];
+  const trimmed = prefix.trim();
+  if (!trimmed) return [];
+  const found = await prisma.location.findMany({
+    where: {
+      OR: [
+        { name: { contains: trimmed, mode: 'insensitive' } },
+        { code: { contains: trimmed, mode: 'insensitive' } },
+      ],
+    },
+    include: { parent: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+    take: 8,
+  });
+  return found.map((l) => ({
+    id: l.id,
+    name: l.name,
+    code: l.code,
+    kind: l.kind,
+    parentName: l.parent?.name ?? null,
+  }));
+}
+
+export interface ObjectInstanceReferenceSuggestion {
+  id: string;
+  name: string;
+  objectTypeName: string;
+}
+
+// Scoped to one ObjectType (the field's configured referenceObjectTypeId)
+// — an OBJECT_TYPE-kind field never offers passports of any other type.
+export async function searchObjectInstancesForReference(
+  objectTypeId: string,
+  prefix: string,
+): Promise<ObjectInstanceReferenceSuggestion[]> {
+  const currentUser = await requirePassportEditor();
+  if (!currentUser) return [];
+  const trimmed = prefix.trim();
+  if (!trimmed || !objectTypeId) return [];
+  const found = await prisma.objectInstance.findMany({
+    where: {
+      objectTypeId,
+      name: { contains: trimmed, mode: 'insensitive' },
+    },
+    include: { objectType: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+    take: 8,
+  });
+  return found.map((i) => ({
+    id: i.id,
+    name: i.name,
+    objectTypeName: i.objectType.name,
+  }));
+}
+
+// Resolves a passport's currently-selected OBJECT_REFERENCE values (a mix
+// of Location ids and ObjectInstance ids, depending on each field's
+// configured kind) to display labels in one batch — used by the fill
+// form's edit-mode initial render, mirroring getIpAddressLabels above.
+export async function getObjectReferenceLabels(
+  locationIds: string[],
+  objectInstanceIds: string[],
+): Promise<{
+  locations: Record<string, ObjectReferenceLabel>;
+  instances: Record<string, ObjectReferenceLabel>;
+}> {
+  const currentUser = await requirePassportEditor();
+  if (!currentUser) return { locations: {}, instances: {} };
+  const { locations, instances } = await resolveObjectReferenceLabels(
+    locationIds,
+    objectInstanceIds,
+  );
+  return {
+    locations: Object.fromEntries(locations),
+    instances: Object.fromEntries(instances),
+  };
+}
+
+// ─────────────────────────────────────────────
 // Create / update / delete
 //
 // Validation (validatePassportValues) now lives in validate-values.ts —
@@ -403,12 +583,21 @@ export async function createPassport(
   }
 
   const ipRefFields = ipReferenceFields(objectType.fields);
+  const objectRefFields = objectReferenceFields(objectType.fields);
   const tableFields = objectType.fields.filter((f) => f.type === 'TABLE');
-  const [ipRefErrors, tableIpRefErrors] = await Promise.all([
-    validateIpReferenceValues(ipRefFields, validated.data.values),
-    validateTableIpReferenceValues(tableFields, validated.data.tableRows),
-  ]);
-  const combinedIpRefErrors = { ...ipRefErrors, ...tableIpRefErrors };
+  const [ipRefErrors, tableIpRefErrors, objectRefErrors, tableObjectRefErrors] =
+    await Promise.all([
+      validateIpReferenceValues(ipRefFields, validated.data.values),
+      validateTableIpReferenceValues(tableFields, validated.data.tableRows),
+      validateObjectReferenceValues(objectRefFields, validated.data.values),
+      validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
+    ]);
+  const combinedIpRefErrors = {
+    ...ipRefErrors,
+    ...tableIpRefErrors,
+    ...objectRefErrors,
+    ...tableObjectRefErrors,
+  };
   if (Object.keys(combinedIpRefErrors).length > 0) {
     return { ok: false, fieldErrors: combinedIpRefErrors };
   }
@@ -448,9 +637,16 @@ export async function createPassport(
         ipRefFields,
         validated.data.values,
       );
+      await syncFieldObjectReferenceLinks(
+        tx,
+        created.id,
+        objectRefFields,
+        validated.data.values,
+      );
       // Runs after the table rows above are inserted — needs their real
       // ids, see syncTableCellIpAddressLinks's doc comment.
       await syncTableCellIpAddressLinks(tx, created.id, tableFields);
+      await syncTableCellObjectReferenceLinks(tx, created.id, tableFields);
 
       return created;
     });
@@ -507,14 +703,23 @@ export async function updatePassport(
   }
 
   const ipRefFields = ipReferenceFields(existing.objectType.fields);
+  const objectRefFields = objectReferenceFields(existing.objectType.fields);
   const tableFields = existing.objectType.fields.filter(
     (f) => f.type === 'TABLE',
   );
-  const [ipRefErrors, tableIpRefErrors] = await Promise.all([
-    validateIpReferenceValues(ipRefFields, validated.data.values),
-    validateTableIpReferenceValues(tableFields, validated.data.tableRows),
-  ]);
-  const combinedIpRefErrors = { ...ipRefErrors, ...tableIpRefErrors };
+  const [ipRefErrors, tableIpRefErrors, objectRefErrors, tableObjectRefErrors] =
+    await Promise.all([
+      validateIpReferenceValues(ipRefFields, validated.data.values),
+      validateTableIpReferenceValues(tableFields, validated.data.tableRows),
+      validateObjectReferenceValues(objectRefFields, validated.data.values),
+      validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
+    ]);
+  const combinedIpRefErrors = {
+    ...ipRefErrors,
+    ...tableIpRefErrors,
+    ...objectRefErrors,
+    ...tableObjectRefErrors,
+  };
   if (Object.keys(combinedIpRefErrors).length > 0) {
     return { ok: false, fieldErrors: combinedIpRefErrors };
   }
@@ -532,6 +737,12 @@ export async function updatePassport(
       });
 
       await syncFieldIpAddressLinks(tx, id, ipRefFields, validated.data.values);
+      await syncFieldObjectReferenceLinks(
+        tx,
+        id,
+        objectRefFields,
+        validated.data.values,
+      );
 
       // Responsible users and table rows are both replaced wholesale
       // rather than diffed — same approach as FieldVisibility in the form
@@ -567,6 +778,7 @@ export async function updatePassport(
       // doc comment. The deleteMany just above already cascaded away any
       // old links for this passport's previous rows.
       await syncTableCellIpAddressLinks(tx, id, tableFields);
+      await syncTableCellObjectReferenceLinks(tx, id, tableFields);
     });
 
     await writeAudit('UPDATE', id, currentUser.id, { name });
@@ -590,6 +802,41 @@ export async function deletePassport(id: string): Promise<ActionResult> {
   const existing = await prisma.objectInstance.findUnique({ where: { id } });
   if (!existing) {
     return { ok: false, message: 'Паспорт не найден' };
+  }
+
+  // An OBJECT_REFERENCE field (or column) on another passport can point at
+  // this one as a real foreign key (onDelete: Restrict — see
+  // FieldObjectReferenceValue/TableCellObjectReferenceValue in
+  // schema.prisma), so deleting a referenced passport would otherwise fail
+  // with a raw Prisma FK error. Check both first and name the passport(s)
+  // instead — same pattern as deleteIpAddress in ip-addresses/actions.ts.
+  const [links, tableCellLinks] = await Promise.all([
+    prisma.fieldObjectReferenceValue.findMany({
+      where: { targetObjectInstanceId: id },
+      take: 5,
+      include: { objectInstance: { select: { name: true } } },
+    }),
+    prisma.tableCellObjectReferenceValue.findMany({
+      where: { targetObjectInstanceId: id },
+      take: 5,
+      include: {
+        tableFieldRow: {
+          include: { objectInstance: { select: { name: true } } },
+        },
+      },
+    }),
+  ]);
+  if (links.length > 0 || tableCellLinks.length > 0) {
+    const names = Array.from(
+      new Set([
+        ...links.map((l) => l.objectInstance.name),
+        ...tableCellLinks.map((l) => l.tableFieldRow.objectInstance.name),
+      ]),
+    );
+    return {
+      ok: false,
+      message: `Этот паспорт используется в паспорте: ${names.join(', ')} — сначала удалите ссылку там`,
+    };
   }
 
   try {

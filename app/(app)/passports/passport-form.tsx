@@ -33,6 +33,9 @@ import {
   checkIpAddressKnown,
   searchIpAddresses,
   getIpAddressLabels,
+  searchLocationsForReference,
+  searchObjectInstancesForReference,
+  getObjectReferenceLabels,
 } from '@/app/(app)/passports/actions';
 import type {
   ObjectTypeForFill,
@@ -41,7 +44,45 @@ import type {
 } from '@/app/(app)/passports/types';
 import type { IpAddressSuggestion } from '@/app/(app)/passports/actions';
 import type { IpAddressRefLabel } from '@/app/(app)/passports/ip-reference-utils';
+import type { ObjectReferenceLabel } from '@/app/(app)/passports/object-reference-utils';
 import type { TableColumnDef } from '@/app/(app)/object-types/types';
+
+// One search result for ObjectReferenceField below, normalized from either
+// LocationReferenceSuggestion or ObjectInstanceReferenceSuggestion (see
+// actions.ts) so the field component itself doesn't need to know which
+// kind it's browsing.
+type ReferenceSuggestion = { id: string; title: string; subtitle: string };
+
+// Builds the right search function for one OBJECT_REFERENCE field/column,
+// based on its admin-configured target — LOCATION searches the whole
+// Location tree, OBJECT_TYPE searches only passports of the configured
+// type. Kept outside the component so it's cheap to recreate per render
+// without needing a useCallback/useMemo.
+function objectReferenceSearcher(
+  targetKind: string | null | undefined,
+  referenceObjectTypeId: string | null | undefined,
+): (prefix: string) => Promise<ReferenceSuggestion[]> {
+  if (targetKind === 'LOCATION') {
+    return async (prefix) => {
+      const found = await searchLocationsForReference(prefix);
+      return found.map((l) => ({
+        id: l.id,
+        title: l.name,
+        subtitle: [l.kind, l.parentName].filter(Boolean).join(' · '),
+      }));
+    };
+  }
+  const objectTypeId = referenceObjectTypeId ?? '';
+  return async (prefix) => {
+    if (!objectTypeId) return [];
+    const found = await searchObjectInstancesForReference(objectTypeId, prefix);
+    return found.map((i) => ({
+      id: i.id,
+      title: i.name,
+      subtitle: i.objectTypeName,
+    }));
+  };
+}
 
 interface PassportFormProps {
   objectType: ObjectTypeForFill;
@@ -60,12 +101,18 @@ function getTableColumns(tableColumns: unknown): TableColumnDef[] {
     : [];
 }
 
-export function PassportForm({ objectType, users, passport }: PassportFormProps) {
+export function PassportForm({
+  objectType,
+  users,
+  passport,
+}: PassportFormProps) {
   const router = useRouter();
   const isEdit = !!passport;
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>(
+    {},
+  );
 
   const [name, setName] = React.useState(passport?.name ?? '');
 
@@ -103,7 +150,8 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
         const cells = r.cells as unknown as Record<string, unknown>;
         const row: TableRowState = {};
         for (const [k, v] of Object.entries(cells ?? {})) {
-          row[k] = typeof v === 'boolean' ? (v ? 'true' : 'false') : String(v ?? '');
+          row[k] =
+            typeof v === 'boolean' ? (v ? 'true' : 'false') : String(v ?? '');
         }
         return row;
       });
@@ -152,6 +200,68 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
     getIpAddressLabels(ids).then((map) => {
       if (!cancelled) setIpRefLabels((prev) => ({ ...prev, ...map }));
     });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // OBJECT_REFERENCE fields/columns store a bare Location or ObjectInstance
+  // id (28 August 2026, CMDB phase 2) — same idea as ipRefLabels above,
+  // generalized. Ids are split by each field's configured target kind
+  // before resolving, then merged into one flat map: a random-UUID
+  // collision between the Location and ObjectInstance id spaces is not a
+  // realistic concern, and every consumer already knows which pool an id
+  // came from via its owning field's config.
+  const [objectRefLabels, setObjectRefLabels] = React.useState<
+    Record<string, ObjectReferenceLabel>
+  >({});
+
+  React.useEffect(() => {
+    const locationIds: string[] = [];
+    const instanceIds: string[] = [];
+
+    for (const field of objectType.fields) {
+      if (field.type !== 'OBJECT_REFERENCE') continue;
+      const v = values[field.key];
+      if (typeof v !== 'string' || !v) continue;
+      (field.referenceTargetKind === 'LOCATION'
+        ? locationIds
+        : instanceIds
+      ).push(v);
+    }
+
+    for (const field of objectType.fields) {
+      if (field.type !== 'TABLE') continue;
+      const refColumns = getTableColumns(field.tableColumns).filter(
+        (c) => c.type === 'OBJECT_REFERENCE',
+      );
+      if (refColumns.length === 0) continue;
+      for (const row of tableRows[field.key] ?? []) {
+        for (const col of refColumns) {
+          const v = row[col.key];
+          if (!v) continue;
+          (col.referenceTargetKind === 'LOCATION'
+            ? locationIds
+            : instanceIds
+          ).push(v);
+        }
+      }
+    }
+
+    if (locationIds.length === 0 && instanceIds.length === 0) return;
+    let cancelled = false;
+    getObjectReferenceLabels(locationIds, instanceIds).then(
+      ({ locations, instances }) => {
+        if (!cancelled) {
+          setObjectRefLabels((prev) => ({
+            ...prev,
+            ...locations,
+            ...instances,
+          }));
+        }
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -214,8 +324,10 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
   // runs by sectionName, same as the form builder (see
   // app/(app)/object-types/[id]/fields-builder.tsx).
   const groups = React.useMemo(() => {
-    const list: { sectionName: string | null; fields: typeof objectType.fields }[] =
-      [];
+    const list: {
+      sectionName: string | null;
+      fields: typeof objectType.fields;
+    }[] = [];
     for (const field of objectType.fields) {
       const last = list[list.length - 1];
       if (last && last.sectionName === field.sectionName) {
@@ -237,8 +349,10 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
       return;
     }
 
-    const payloadTableRows: Record<string, { cells: Record<string, unknown> }[]> =
-      {};
+    const payloadTableRows: Record<
+      string,
+      { cells: Record<string, unknown> }[]
+    > = {};
     for (const field of objectType.fields) {
       if (field.type !== 'TABLE') continue;
       const columns = getTableColumns(field.tableColumns);
@@ -290,9 +404,15 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
       return;
     }
 
-    toast.success(result.message ?? (isEdit ? 'Паспорт обновлён' : 'Паспорт создан'));
+    toast.success(
+      result.message ?? (isEdit ? 'Паспорт обновлён' : 'Паспорт создан'),
+    );
     router.push(
-      isEdit ? `/passports/${passport!.id}` : newId ? `/passports/${newId}` : '/passports',
+      isEdit
+        ? `/passports/${passport!.id}`
+        : newId
+          ? `/passports/${newId}`
+          : '/passports',
     );
     router.refresh();
   }
@@ -419,6 +539,18 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                       ipRefLabels[(values[field.key] as string) ?? '']
                     }
                   />
+                ) : field.type === 'OBJECT_REFERENCE' ? (
+                  <ObjectReferenceField
+                    value={(values[field.key] as string) ?? ''}
+                    onChange={(v) => setFieldValue(field.key, v)}
+                    initialLabel={
+                      objectRefLabels[(values[field.key] as string) ?? '']
+                    }
+                    search={objectReferenceSearcher(
+                      field.referenceTargetKind,
+                      field.referenceObjectTypeId,
+                    )}
+                  />
                 ) : field.type === 'TABLE' ? (
                   <TableFieldEditor
                     label={field.label}
@@ -431,6 +563,7 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
                       setTableCell(field.key, index, columnKey, value)
                     }
                     ipRefLabels={ipRefLabels}
+                    objectRefLabels={objectRefLabels}
                   />
                 ) : null}
 
@@ -461,7 +594,9 @@ export function PassportForm({ objectType, users, passport }: PassportFormProps)
           </div>
           <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-md border p-3">
             {filteredUsers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Никого не найдено.</p>
+              <p className="text-sm text-muted-foreground">
+                Никого не найдено.
+              </p>
             ) : (
               filteredUsers.map((u) => (
                 <label key={u.id} className="flex items-center gap-2 text-sm">
@@ -606,7 +741,8 @@ function IpAddressField({
       ) : null}
       {status === 'unknown' ? (
         <p className="mt-1.5 text-xs text-amber-600">
-          Такого IP-адреса нет в IPAM — проверьте значение (сохранить всё равно можно).
+          Такого IP-адреса нет в IPAM — проверьте значение (сохранить всё равно
+          можно).
         </p>
       ) : null}
     </div>
@@ -743,6 +879,147 @@ function IpReferenceField({
 }
 
 // ─────────────────────────────────────────────
+// OBJECT_REFERENCE field — hard link to a Location node or another
+// passport (28 August 2026, CMDB phase 2 — see FieldType.OBJECT_REFERENCE
+// in schema.prisma), generalizing IpReferenceField above from IpAddress
+// targets to any CMDB object. Same "no free-text fallback" shape: the only
+// way to set it is picking a real result from the `search` function the
+// caller supplies (see objectReferenceSearcher above), which already
+// knows which pool (Location tree, or one ObjectType's passports) to
+// search based on this field's admin-configured target.
+// ─────────────────────────────────────────────
+
+function ObjectReferenceField({
+  value,
+  onChange,
+  initialLabel,
+  search,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  initialLabel?: ObjectReferenceLabel;
+  search: (prefix: string) => Promise<ReferenceSuggestion[]>;
+}) {
+  const [query, setQuery] = React.useState('');
+  const [suggestions, setSuggestions] = React.useState<ReferenceSuggestion[]>(
+    [],
+  );
+  const [focused, setFocused] = React.useState(false);
+  const [selected, setSelected] = React.useState<ReferenceSuggestion | null>(
+    initialLabel
+      ? {
+          id: initialLabel.id,
+          title: initialLabel.title,
+          subtitle: initialLabel.subtitle,
+        }
+      : null,
+  );
+
+  React.useEffect(() => {
+    if (initialLabel && initialLabel.id === value) {
+      setSelected({
+        id: initialLabel.id,
+        title: initialLabel.title,
+        subtitle: initialLabel.subtitle,
+      });
+    }
+  }, [initialLabel, value]);
+
+  React.useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const found = await search(trimmed);
+      if (!cancelled) setSuggestions(found);
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, search]);
+
+  function pick(s: ReferenceSuggestion) {
+    setSelected(s);
+    setQuery('');
+    setFocused(false);
+    onChange(s.id);
+  }
+
+  function changeSelection() {
+    setSelected(null);
+    setQuery('');
+    onChange('');
+  }
+
+  if (selected) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+        <div>
+          <p className="text-sm font-medium">{selected.title}</p>
+          {selected.subtitle ? (
+            <p className="text-xs text-muted-foreground">{selected.subtitle}</p>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={changeSelection}
+        >
+          Изменить
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        placeholder="Начните вводить название…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        autoComplete="off"
+      />
+      {focused && suggestions.length > 0 ? (
+        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border bg-popover shadow-md">
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm hover:bg-accent"
+              onMouseDown={(e) => {
+                // onMouseDown (not onClick) so this fires before the
+                // input's onBlur would otherwise close the dropdown first.
+                e.preventDefault();
+                pick(s);
+              }}
+            >
+              <span className="font-medium">{s.title}</span>
+              {s.subtitle ? (
+                <span className="text-xs text-muted-foreground">
+                  {s.subtitle}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {focused && query.trim() && suggestions.length === 0 ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Совпадений не найдено.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // TABLE-type field row editor
 // ─────────────────────────────────────────────
 
@@ -759,6 +1036,9 @@ interface TableFieldEditorProps {
   // the ipRefLabels effect in PassportForm) — same idea as the regular
   // IP_REFERENCE field's initialLabel, one level down.
   ipRefLabels: Record<string, IpAddressRefLabel>;
+  // Same idea, one level down, for OBJECT_REFERENCE columns (28 August
+  // 2026) — see the objectRefLabels effect in PassportForm.
+  objectRefLabels: Record<string, ObjectReferenceLabel>;
 }
 
 function TableFieldEditor({
@@ -770,6 +1050,7 @@ function TableFieldEditor({
   onRemoveRow,
   onCellChange,
   ipRefLabels,
+  objectRefLabels,
 }: TableFieldEditorProps) {
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -841,6 +1122,16 @@ function TableFieldEditor({
                           value={row[col.key] ?? ''}
                           onChange={(v) => onCellChange(index, col.key, v)}
                           initialLabel={ipRefLabels[row[col.key] ?? '']}
+                        />
+                      ) : col.type === 'OBJECT_REFERENCE' ? (
+                        <ObjectReferenceField
+                          value={row[col.key] ?? ''}
+                          onChange={(v) => onCellChange(index, col.key, v)}
+                          initialLabel={objectRefLabels[row[col.key] ?? '']}
+                          search={objectReferenceSearcher(
+                            col.referenceTargetKind,
+                            col.referenceObjectTypeId,
+                          )}
                         />
                       ) : (
                         <Input

@@ -225,7 +225,15 @@ export const FIELD_DEFINITION_TYPES = [
   // docs/it-passports-design.md section 6.3 ("вариант 1"). Scoped to
   // regular (non-TABLE) fields for now, same as validateAsIp before it.
   'IP_REFERENCE',
+  // Generalization of IP_REFERENCE to any CMDB object (Location tree node
+  // or another passport) — see schema.prisma's FieldType.OBJECT_REFERENCE
+  // doc comment and it-passports-design.md section 8 (CMDB phase 2).
+  'OBJECT_REFERENCE',
 ] as const;
+
+// Which kind of object an OBJECT_REFERENCE field/column points to — mirrors
+// the Prisma ReferenceTargetKind enum.
+export const REFERENCE_TARGET_KINDS = ['LOCATION', 'OBJECT_TYPE'] as const;
 
 // Column types allowed inside a TABLE field's own columns — TABLE can't
 // nest inside itself. IP_REFERENCE is allowed here too (26 August 2026,
@@ -240,21 +248,48 @@ export const TABLE_COLUMN_TYPES = [
   'BOOLEAN',
   'LINK',
   'IP_REFERENCE',
+  // 28 August 2026 — same extension as IP_REFERENCE got on 26 August: a
+  // column can hard-link each row to a Location node or another passport,
+  // scoped per column the same way a regular OBJECT_REFERENCE field is
+  // scoped (see FieldType.OBJECT_REFERENCE in schema.prisma).
+  'OBJECT_REFERENCE',
 ] as const;
 
 const fieldKeyRegex = /^[a-z0-9_]+$/;
 
-export const tableColumnSchema = z.object({
-  key: z
-    .string()
-    .min(1, 'Column key is required')
-    .regex(fieldKeyRegex, 'Lowercase letters, numbers, underscores only'),
-  label: z.string().min(1, 'Column label is required'),
-  type: z.enum(TABLE_COLUMN_TYPES),
-  // Same soft IP-address check as FieldDefinition.validateAsIp, scoped to
-  // one column of a TABLE field — only meaningful when type is 'TEXT'.
-  validateAsIp: z.boolean().default(false),
-});
+export const tableColumnSchema = z
+  .object({
+    key: z
+      .string()
+      .min(1, 'Column key is required')
+      .regex(fieldKeyRegex, 'Lowercase letters, numbers, underscores only'),
+    label: z.string().min(1, 'Column label is required'),
+    type: z.enum(TABLE_COLUMN_TYPES),
+    // Same soft IP-address check as FieldDefinition.validateAsIp, scoped to
+    // one column of a TABLE field — only meaningful when type is 'TEXT'.
+    validateAsIp: z.boolean().default(false),
+    // Only meaningful when type is 'OBJECT_REFERENCE' — same two config
+    // fields as fieldDefinitionSchema below, scoped to one column.
+    referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
+    referenceObjectTypeId: z.string().min(1).optional().nullable(),
+  })
+  .refine(
+    (data) => data.type !== 'OBJECT_REFERENCE' || !!data.referenceTargetKind,
+    {
+      message: 'Choose what this column links to',
+      path: ['referenceTargetKind'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'OBJECT_REFERENCE' ||
+      data.referenceTargetKind !== 'OBJECT_TYPE' ||
+      !!data.referenceObjectTypeId,
+    {
+      message: 'Choose which object type this column links to',
+      path: ['referenceObjectTypeId'],
+    },
+  );
 
 // Server-side shape for creating/updating one FieldDefinition. The admin
 // UI (app/(app)/object-types/[id]/field-form-dialog.tsx) builds its own
@@ -280,6 +315,11 @@ export const fieldDefinitionSchema = z
     // Soft IP-address validation flag — only meaningful for TEXT fields; see
     // the FieldDefinition.validateAsIp comment in schema.prisma.
     validateAsIp: z.boolean().default(false),
+    // Only meaningful for OBJECT_REFERENCE fields — see
+    // FieldDefinition.referenceTargetKind/referenceObjectTypeId in
+    // schema.prisma.
+    referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
+    referenceObjectTypeId: z.string().min(1).optional().nullable(),
   })
   .refine((data) => data.type !== 'SELECT' || data.options.length > 0, {
     message: 'Add at least one option',
@@ -288,6 +328,23 @@ export const fieldDefinitionSchema = z
   .refine((data) => data.type !== 'TABLE' || data.tableColumns.length > 0, {
     message: 'Add at least one column',
     path: ['tableColumns'],
-  });
+  })
+  .refine(
+    (data) => data.type !== 'OBJECT_REFERENCE' || !!data.referenceTargetKind,
+    {
+      message: 'Choose what this field links to',
+      path: ['referenceTargetKind'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'OBJECT_REFERENCE' ||
+      data.referenceTargetKind !== 'OBJECT_TYPE' ||
+      !!data.referenceObjectTypeId,
+    {
+      message: 'Choose which object type this field links to',
+      path: ['referenceObjectTypeId'],
+    },
+  );
 
 export type FieldDefinitionValues = z.infer<typeof fieldDefinitionSchema>;
