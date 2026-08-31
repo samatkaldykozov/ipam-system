@@ -46,6 +46,14 @@ import {
   type TableColumnType,
 } from '@/app/(app)/object-types/types';
 
+// Sentinel Select value standing in for "no specific object type" (i.e.
+// referenceObjectTypeId = null, "любой тип объекта") — Radix Select can't
+// take an empty string as an item value, so the empty form value is mapped
+// to/from this sentinel right at the Select boundary, in both places an
+// OBJECT_REFERENCE "Тип объекта" picker appears (regular field below, and
+// the TABLE column variant further down).
+const ANY_OBJECT_TYPE = '__any__';
+
 interface FieldFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -86,6 +94,7 @@ type FormValues = {
   referenceObjectTypeId: string;
   autoIdentifierRackFieldKey: string;
   autoIdentifierEquipmentTypeCodeId: string;
+  rackPositionRackFieldKey: string;
 };
 
 const EMPTY: FormValues = {
@@ -104,6 +113,7 @@ const EMPTY: FormValues = {
   referenceObjectTypeId: '',
   autoIdentifierRackFieldKey: '',
   autoIdentifierEquipmentTypeCodeId: '',
+  rackPositionRackFieldKey: '',
 };
 
 export function FieldFormDialog({
@@ -190,6 +200,7 @@ export function FieldFormDialog({
         autoIdentifierRackFieldKey: field.autoIdentifierRackFieldKey ?? '',
         autoIdentifierEquipmentTypeCodeId:
           field.autoIdentifierEquipmentTypeCodeId ?? '',
+        rackPositionRackFieldKey: field.rackPositionRackFieldKey ?? '',
       });
     } else {
       reset(EMPTY);
@@ -223,13 +234,11 @@ export function FieldFormDialog({
         toast.error('Выберите, на что будет ссылаться поле');
         return;
       }
-      if (
-        values.referenceTargetKind === 'OBJECT_TYPE' &&
-        !values.referenceObjectTypeId
-      ) {
-        toast.error('Выберите тип объекта, на который будет ссылаться поле');
-        return;
-      }
+      // referenceObjectTypeId left empty when target kind is OBJECT_TYPE is
+      // valid and means "любой тип объекта" — see the "Тип объекта" select
+      // below, which offers that explicitly. No requirement to check here
+      // any more (31 August 2026, CMDB phase 5 — see it-passports-design.md
+      // section 8.8 for why this was relaxed).
     }
 
     if (values.type === 'AUTO_IDENTIFIER') {
@@ -241,6 +250,11 @@ export function FieldFormDialog({
         toast.error('Выберите код типа оборудования');
         return;
       }
+    }
+
+    if (values.type === 'RACK_POSITION' && !values.rackPositionRackFieldKey) {
+      toast.error('Выберите поле со стойкой');
+      return;
     }
 
     const tableColumns = values.tableColumns
@@ -262,12 +276,12 @@ export function FieldFormDialog({
       toast.error('Добавьте хотя бы один столбец таблицы');
       return;
     }
+    // Only referenceTargetKind is required — an OBJECT_TYPE column left
+    // without referenceObjectTypeId means "any object type" (31 August
+    // 2026, CMDB phase 5), same relaxation as the regular-field check
+    // above.
     const badReferenceColumn = tableColumns.find(
-      (c) =>
-        c.type === 'OBJECT_REFERENCE' &&
-        (!c.referenceTargetKind ||
-          (c.referenceTargetKind === 'OBJECT_TYPE' &&
-            !c.referenceObjectTypeId)),
+      (c) => c.type === 'OBJECT_REFERENCE' && !c.referenceTargetKind,
     );
     if (badReferenceColumn) {
       toast.error(
@@ -304,6 +318,10 @@ export function FieldFormDialog({
       autoIdentifierEquipmentTypeCodeId:
         values.type === 'AUTO_IDENTIFIER'
           ? values.autoIdentifierEquipmentTypeCodeId || null
+          : null,
+      rackPositionRackFieldKey:
+        values.type === 'RACK_POSITION'
+          ? values.rackPositionRackFieldKey || null
           : null,
     };
 
@@ -522,11 +540,19 @@ export function FieldFormDialog({
                     control={control}
                     name="referenceObjectTypeId"
                     render={({ field: f }) => (
-                      <Select value={f.value} onValueChange={f.onChange}>
+                      <Select
+                        value={f.value || ANY_OBJECT_TYPE}
+                        onValueChange={(v) =>
+                          f.onChange(v === ANY_OBJECT_TYPE ? '' : v)
+                        }
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Выберите тип…" />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value={ANY_OBJECT_TYPE}>
+                            Любой тип объекта
+                          </SelectItem>
                           {objectTypes.map((ot) => (
                             <SelectItem key={ot.id} value={ot.id}>
                               {ot.name}
@@ -536,8 +562,54 @@ export function FieldFormDialog({
                       </Select>
                     )}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    «Любой тип объекта» — при заполнении паспорта можно будет
+                    выбрать паспорт любого типа (например, для патч-кордов, где
+                    на другом конце кабеля может быть сервер, коммутатор или
+                    другое оборудование).
+                  </p>
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {type === 'RACK_POSITION' ? (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                При заполнении паспорта нужно будет указать начальный юнит и
+                высоту в юнитах (U). Значение не проверяется на пересечение с
+                другим оборудованием при сохранении — пересечения и выход за
+                вместимость стойки показываются на странице раскладки стойки.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Поле со стойкой</Label>
+                {rackFieldCandidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    На этом типе объекта нет полей «Ссылка на объект CMDB»,
+                    настроенных на узел дерева локаций — сначала добавьте такое
+                    поле.
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="rackPositionRackFieldKey"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поле…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {rackFieldCandidates.map((rf) => (
+                            <SelectItem key={rf.id} value={rf.key}>
+                              {rf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
             </div>
           ) : null}
 
@@ -778,13 +850,18 @@ export function FieldFormDialog({
                               }
                               render={({ field: f2 }) => (
                                 <Select
-                                  value={f2.value}
-                                  onValueChange={f2.onChange}
+                                  value={f2.value || ANY_OBJECT_TYPE}
+                                  onValueChange={(v) =>
+                                    f2.onChange(v === ANY_OBJECT_TYPE ? '' : v)
+                                  }
                                 >
                                   <SelectTrigger>
                                     <SelectValue placeholder="Тип объекта…" />
                                   </SelectTrigger>
                                   <SelectContent>
+                                    <SelectItem value={ANY_OBJECT_TYPE}>
+                                      Любой тип объекта
+                                    </SelectItem>
                                     {objectTypes.map((ot) => (
                                       <SelectItem key={ot.id} value={ot.id}>
                                         {ot.name}

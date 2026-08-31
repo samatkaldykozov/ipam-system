@@ -489,19 +489,25 @@ export interface ObjectInstanceReferenceSuggestion {
   objectTypeName: string;
 }
 
-// Scoped to one ObjectType (the field's configured referenceObjectTypeId)
-// — an OBJECT_TYPE-kind field never offers passports of any other type.
+// Scoped to one ObjectType when the field's configured referenceObjectTypeId
+// is set — an OBJECT_TYPE-kind field normally never offers passports of any
+// other type. objectTypeId is null when the field is configured for "any
+// object type" (31 August 2026, CMDB phase 5, see it-passports-design.md
+// section 8.8 — e.g. a patch-cord column, where the other end of a cable
+// can be any kind of equipment): in that case the search is unscoped, and
+// objectTypeName in the result is what tells the picker which type each
+// match actually is.
 export async function searchObjectInstancesForReference(
-  objectTypeId: string,
+  objectTypeId: string | null,
   prefix: string,
 ): Promise<ObjectInstanceReferenceSuggestion[]> {
   const currentUser = await requirePassportEditor();
   if (!currentUser) return [];
   const trimmed = prefix.trim();
-  if (!trimmed || !objectTypeId) return [];
+  if (!trimmed) return [];
   const found = await prisma.objectInstance.findMany({
     where: {
-      objectTypeId,
+      ...(objectTypeId ? { objectTypeId } : {}),
       name: { contains: trimmed, mode: 'insensitive' },
     },
     include: { objectType: { select: { name: true } } },

@@ -1,5 +1,7 @@
 import type { FieldDefinition } from '@prisma/client';
 
+import { rackPositionValueRegex } from '@/lib/validations';
+
 // Deliberately NOT a 'use server' file: a file with that directive may only
 // export async functions (every export becomes a Server Action), and this
 // is a plain synchronous helper shared by both actions.ts (create/update
@@ -85,6 +87,20 @@ export function validatePassportValues(
         fieldErrors[field.key] = `«${field.label}»: недопустимое значение`;
         continue;
       }
+    }
+
+    // Structural check only — "{startUnit}:{sizeUnits}", both positive
+    // integers (see rackPositionValueRegex in lib/validations.ts). No
+    // overlap/capacity check here: that's advisory and done by the
+    // rack-elevation page at render time, not blocked at save time — see
+    // the FieldType.RACK_POSITION doc comment in schema.prisma.
+    if (
+      field.type === 'RACK_POSITION' &&
+      !rackPositionValueRegex.test(strValue)
+    ) {
+      fieldErrors[field.key] =
+        `«${field.label}»: укажите юнит и высоту, например «12:2»`;
+      continue;
     }
 
     values[field.key] = strValue;

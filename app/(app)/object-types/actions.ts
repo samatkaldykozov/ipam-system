@@ -320,6 +320,9 @@ type FieldDefinitionInput = {
   // autoIdentifierEquipmentTypeCodeId in schema.prisma.
   autoIdentifierRackFieldKey?: string | null;
   autoIdentifierEquipmentTypeCodeId?: string | null;
+  // Only meaningful when type is 'RACK_POSITION' — see
+  // FieldDefinition.rackPositionRackFieldKey in schema.prisma.
+  rackPositionRackFieldKey?: string | null;
 };
 
 // Pre-check run before create/update, mirroring the pattern used for
@@ -409,6 +412,41 @@ async function validateAutoIdentifierConfig(
   }
 
   return Object.keys(errors).length > 0 ? errors : null;
+}
+
+// Pre-check for RACK_POSITION fields (CMDB phase 5) — same "sibling field
+// by key must be OBJECT_REFERENCE targeting LOCATION" check as
+// validateAutoIdentifierConfig's rack-field half above, minus the
+// equipment-type-code half (RACK_POSITION has no dictionary — height is
+// typed per instance, not fixed per field, see the FieldType.RACK_POSITION
+// doc comment in schema.prisma for why).
+async function validateRackPositionConfig(
+  data: Pick<FieldDefinitionInput, 'type' | 'rackPositionRackFieldKey'>,
+  objectTypeId: string,
+  excludeFieldId?: string,
+): Promise<{ rackFieldKey?: string } | null> {
+  if (data.type !== 'RACK_POSITION') return null;
+  if (!data.rackPositionRackFieldKey) return null;
+
+  const rackField = await prisma.fieldDefinition.findFirst({
+    where: {
+      objectTypeId,
+      key: data.rackPositionRackFieldKey,
+      ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+    },
+    select: { type: true, referenceTargetKind: true },
+  });
+  if (
+    !rackField ||
+    rackField.type !== 'OBJECT_REFERENCE' ||
+    rackField.referenceTargetKind !== 'LOCATION'
+  ) {
+    return {
+      rackFieldKey:
+        'Selected field must be an OBJECT_REFERENCE field on this type, linking to a location',
+    };
+  }
+  return null;
 }
 
 // Returns the `order` value a field should be placed right after, so it
@@ -512,6 +550,21 @@ export async function createFieldDefinition(
     };
   }
 
+  const rackPositionErrors = await validateRackPositionConfig(
+    data,
+    objectTypeId,
+  );
+  if (rackPositionErrors) {
+    return {
+      ok: false,
+      fieldErrors: {
+        ...(rackPositionErrors.rackFieldKey
+          ? { rackPositionRackFieldKey: rackPositionErrors.rackFieldKey }
+          : {}),
+      },
+    };
+  }
+
   // Place the new field right after the last existing field of the same
   // section (or at the very end, for a new section) — see
   // nextOrderForSection above for why this has to account for section
@@ -557,6 +610,10 @@ export async function createFieldDefinition(
           autoIdentifierEquipmentTypeCodeId:
             data.type === 'AUTO_IDENTIFIER'
               ? data.autoIdentifierEquipmentTypeCodeId
+              : null,
+          rackPositionRackFieldKey:
+            data.type === 'RACK_POSITION'
+              ? data.rackPositionRackFieldKey
               : null,
           options:
             data.type === 'SELECT'
@@ -657,6 +714,22 @@ export async function updateFieldDefinition(
     };
   }
 
+  const rackPositionErrors = await validateRackPositionConfig(
+    data,
+    existing.objectTypeId,
+    fieldId,
+  );
+  if (rackPositionErrors) {
+    return {
+      ok: false,
+      fieldErrors: {
+        ...(rackPositionErrors.rackFieldKey
+          ? { rackPositionRackFieldKey: rackPositionErrors.rackFieldKey }
+          : {}),
+      },
+    };
+  }
+
   // Only reposition the field if its section is actually changing — normal
   // edits (label, type, options, …) that keep the same section shouldn't
   // touch `order` at all. When the section does change, the field needs to
@@ -719,6 +792,10 @@ export async function updateFieldDefinition(
           autoIdentifierEquipmentTypeCodeId:
             data.type === 'AUTO_IDENTIFIER'
               ? data.autoIdentifierEquipmentTypeCodeId
+              : null,
+          rackPositionRackFieldKey:
+            data.type === 'RACK_POSITION'
+              ? data.rackPositionRackFieldKey
               : null,
           options:
             data.type === 'SELECT'

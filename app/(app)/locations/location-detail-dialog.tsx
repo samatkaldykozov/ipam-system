@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { format } from 'date-fns';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, LayoutGrid } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -76,6 +77,12 @@ export function LocationDetailDialog({
             label="Parent"
             value={location.parent ? location.parent.name : 'Top-level'}
           />
+          {location.kind === 'RACK' ? (
+            <Field
+              label="Rack units (U)"
+              value={location.rackUnits ?? undefined}
+            />
+          ) : null}
           <Field label="City" value={location.city} />
           <Field label="Country" value={location.country} />
           <Field label="Address" value={location.address} />
@@ -96,6 +103,15 @@ export function LocationDetailDialog({
             value={format(location.updatedAt, 'MMM d, yyyy HH:mm')}
           />
         </dl>
+
+        {location.kind === 'RACK' ? (
+          <Button asChild variant="outline" size="sm" className="w-full">
+            <Link href={`/locations/${location.id}/rack-elevation`}>
+              <LayoutGrid className="mr-2 h-4 w-4" />
+              View rack elevation
+            </Link>
+          </Button>
+        ) : null}
 
         <Separator />
 

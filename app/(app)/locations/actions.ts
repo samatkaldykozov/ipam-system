@@ -4,8 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { Prisma, LocationKind } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
-import { locationSchema, type LocationValues } from '@/lib/validations';
-import { getCurrentUser, canEdit } from '@/lib/auth';
+import {
+  locationSchema,
+  rackPositionValueRegex,
+  type LocationValues,
+} from '@/lib/validations';
+import { getCurrentUser, canEdit, hasPassportAccess } from '@/lib/auth';
 import type { SortField, SortOrder } from '@/app/(app)/locations/types';
 
 export type ActionResult<T = void> = {
@@ -216,6 +220,7 @@ export async function createLocation(
         name: data.name,
         code: data.code,
         rowCode: data.rowCode || null,
+        rackUnits: data.rackUnits ?? null,
         address: data.address || null,
         city: data.city || null,
         country: data.country || null,
@@ -302,6 +307,7 @@ export async function updateLocation(
         name: data.name,
         code: data.code,
         rowCode: data.rowCode || null,
+        rackUnits: data.rackUnits ?? null,
         address: data.address || null,
         city: data.city || null,
         country: data.country || null,
@@ -423,4 +429,240 @@ export async function deleteLocation(id: string): Promise<ActionResult> {
   } catch {
     return { ok: false, message: 'Failed to delete location' };
   }
+}
+
+// ─────────────────────────────────────────────
+// Rack elevation (CMDB phase 5, 31 August 2026, see it-passports-design.md
+// section 8.8) — a picture of what equipment occupies which unit of a
+// rack. RACK_POSITION is manually entered and has no relational mirror
+// table (unlike OBJECT_REFERENCE/AUTO_IDENTIFIER — see the doc comment on
+// FieldType.RACK_POSITION in schema.prisma), so this is a render-time scan
+// rather than a stored/enforced fact: it finds every passport whose
+// "rack" OBJECT_REFERENCE field points at this location, reads that
+// passport's RACK_POSITION field value out of its `values` json, and flags
+// overlaps/over-capacity here rather than blocking anything at save time —
+// the same "scan and report" pattern as getIntegrityIssues() in
+// data-integrity/actions.ts.
+// ─────────────────────────────────────────────
+
+export type RackOccupant = {
+  objectInstanceId: string;
+  objectInstanceName: string;
+  objectTypeName: string;
+  fieldLabel: string;
+  raw: string;
+  start: number;
+  size: number;
+  end: number;
+};
+
+export type RackElevation =
+  | { kind: 'not-found' }
+  | { kind: 'not-a-rack'; locationName: string }
+  | { kind: 'no-capacity'; locationId: string; locationName: string }
+  | {
+      kind: 'ok';
+      locationId: string;
+      locationName: string;
+      rackUnits: number;
+      occupants: RackOccupant[];
+      overlapUnits: number[];
+      overCapacity: RackOccupant[];
+      unplaced: {
+        objectInstanceId: string;
+        objectInstanceName: string;
+        objectTypeName: string;
+      }[];
+    };
+
+export async function getRackElevation(
+  locationId: string,
+): Promise<RackElevation> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !hasPassportAccess(currentUser.passportRole)) {
+    return { kind: 'not-found' };
+  }
+
+  const location = await prisma.location.findUnique({
+    where: { id: locationId },
+    select: { id: true, name: true, kind: true, rackUnits: true },
+  });
+  if (!location) return { kind: 'not-found' };
+  if (location.kind !== 'RACK') {
+    return { kind: 'not-a-rack', locationName: location.name };
+  }
+  if (!location.rackUnits) {
+    return {
+      kind: 'no-capacity',
+      locationId: location.id,
+      locationName: location.name,
+    };
+  }
+
+  // Every RACK_POSITION field defined anywhere, together with the sibling
+  // OBJECT_REFERENCE("Стойка") field it's tied to on the same ObjectType —
+  // rackPositionRackFieldKey names that sibling by key (see the field
+  // builder's requireRackFieldKey check in object-types/actions.ts).
+  const rackPosFields = await prisma.fieldDefinition.findMany({
+    where: { type: 'RACK_POSITION' },
+    select: {
+      id: true,
+      key: true,
+      label: true,
+      objectTypeId: true,
+      rackPositionRackFieldKey: true,
+      objectType: { select: { name: true } },
+    },
+  });
+  if (rackPosFields.length === 0) {
+    return {
+      kind: 'ok',
+      locationId: location.id,
+      locationName: location.name,
+      rackUnits: location.rackUnits,
+      occupants: [],
+      overlapUnits: [],
+      overCapacity: [],
+      unplaced: [],
+    };
+  }
+
+  const siblingFields = await prisma.fieldDefinition.findMany({
+    where: {
+      type: 'OBJECT_REFERENCE',
+      OR: rackPosFields
+        .filter((f) => f.rackPositionRackFieldKey)
+        .map((f) => ({
+          objectTypeId: f.objectTypeId,
+          key: f.rackPositionRackFieldKey as string,
+        })),
+    },
+    select: { id: true, objectTypeId: true },
+  });
+
+  const rackPosFieldByObjectTypeId = new Map(
+    rackPosFields.map((f) => [f.objectTypeId, f] as const),
+  );
+  const siblingFieldIds = siblingFields.map((f) => f.id);
+
+  if (siblingFieldIds.length === 0) {
+    return {
+      kind: 'ok',
+      locationId: location.id,
+      locationName: location.name,
+      rackUnits: location.rackUnits,
+      occupants: [],
+      overlapUnits: [],
+      overCapacity: [],
+      unplaced: [],
+    };
+  }
+
+  // Every passport whose "rack" field points at this location, regardless
+  // of whether it has a RACK_POSITION value yet — those without one land
+  // in `unplaced` below instead of `occupants`.
+  const refValues = await prisma.fieldObjectReferenceValue.findMany({
+    where: {
+      targetLocationId: location.id,
+      fieldDefinitionId: { in: siblingFieldIds },
+    },
+    select: { objectInstanceId: true },
+  });
+  const instanceIds = Array.from(
+    new Set(refValues.map((r) => r.objectInstanceId)),
+  );
+
+  if (instanceIds.length === 0) {
+    return {
+      kind: 'ok',
+      locationId: location.id,
+      locationName: location.name,
+      rackUnits: location.rackUnits,
+      occupants: [],
+      overlapUnits: [],
+      overCapacity: [],
+      unplaced: [],
+    };
+  }
+
+  const instances = await prisma.objectInstance.findMany({
+    where: { id: { in: instanceIds } },
+    select: {
+      id: true,
+      name: true,
+      values: true,
+      objectTypeId: true,
+      objectType: { select: { name: true } },
+    },
+  });
+
+  const occupants: RackOccupant[] = [];
+  const unplacedList: {
+    objectInstanceId: string;
+    objectInstanceName: string;
+    objectTypeName: string;
+  }[] = [];
+
+  for (const instance of instances) {
+    const rackPosField = rackPosFieldByObjectTypeId.get(instance.objectTypeId);
+    if (!rackPosField) continue;
+    const values = instance.values as unknown as Record<string, unknown>;
+    const raw = values[rackPosField.key];
+    if (typeof raw === 'string' && rackPositionValueRegex.test(raw)) {
+      const [start, size] = raw.split(':').map((n) => parseInt(n, 10));
+      occupants.push({
+        objectInstanceId: instance.id,
+        objectInstanceName: instance.name,
+        objectTypeName: instance.objectType.name,
+        fieldLabel: rackPosField.label,
+        raw,
+        start,
+        size,
+        end: start + size - 1,
+      });
+    } else {
+      unplacedList.push({
+        objectInstanceId: instance.id,
+        objectInstanceName: instance.name,
+        objectTypeName: instance.objectType.name,
+      });
+    }
+  }
+
+  occupants.sort((a, b) => a.start - b.start);
+
+  // Advisory scan, not a stored fact — see the file-level comment above.
+  // A unit is "overlapping" when more than one occupant's [start, end]
+  // range covers it; over-capacity means the range runs past the rack's
+  // declared rackUnits (or, in principle, starts before unit 1, though the
+  // regex already rules that out at entry).
+  const unitOwners = new Map<number, RackOccupant[]>();
+  for (const occ of occupants) {
+    for (let u = occ.start; u <= occ.end; u++) {
+      const list = unitOwners.get(u);
+      if (list) list.push(occ);
+      else unitOwners.set(u, [occ]);
+    }
+  }
+  // for...of over a Map needs downlevelIteration under this project's es5
+  // target (not set — see the Object.entries()-only convention used
+  // elsewhere in this codebase for the same reason), so use forEach here
+  // instead of for...of.
+  const overlapUnits: number[] = [];
+  unitOwners.forEach((owners, unit) => {
+    if (owners.length > 1) overlapUnits.push(unit);
+  });
+  overlapUnits.sort((a, b) => a - b);
+  const overCapacity = occupants.filter((occ) => occ.end > location.rackUnits!);
+
+  return {
+    kind: 'ok',
+    locationId: location.id,
+    locationName: location.name,
+    rackUnits: location.rackUnits,
+    occupants,
+    overlapUnits,
+    overCapacity,
+    unplaced: unplacedList,
+  };
 }

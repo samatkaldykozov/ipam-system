@@ -72,9 +72,11 @@ function objectReferenceSearcher(
       }));
     };
   }
-  const objectTypeId = referenceObjectTypeId ?? '';
+  // Null means "any object type" (31 August 2026, CMDB phase 5) — passed
+  // straight through to the unscoped search rather than short-circuiting
+  // to an empty result the way an actually-missing config would.
+  const objectTypeId = referenceObjectTypeId || null;
   return async (prefix) => {
-    if (!objectTypeId) return [];
     const found = await searchObjectInstancesForReference(objectTypeId, prefix);
     return found.map((i) => ({
       id: i.id,
@@ -560,6 +562,11 @@ export function PassportForm({
                       'будет присвоено после сохранения'
                     }
                   />
+                ) : field.type === 'RACK_POSITION' ? (
+                  <RackPositionField
+                    value={(values[field.key] as string) ?? ''}
+                    onChange={(v) => setFieldValue(field.key, v)}
+                  />
                 ) : field.type === 'TABLE' ? (
                   <TableFieldEditor
                     label={field.label}
@@ -1024,6 +1031,60 @@ function ObjectReferenceField({
           Совпадений не найдено.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// RACK_POSITION field — two plain number inputs (start unit, height in U),
+// combined into/parsed from the "{startUnit}:{sizeUnits}" string stored in
+// values[field.key] (see rackPositionValueRegex in lib/validations.ts).
+// Units are numbered from the bottom of the rack (unit 1 = lowest), the
+// common datacenter convention — see the rack-elevation page, which
+// renders on the same assumption.
+// ─────────────────────────────────────────────
+
+function RackPositionField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [startUnit, sizeUnits] = value.split(':');
+
+  function update(nextStart: string, nextSize: string) {
+    // Only emit a value once both halves look like something — an empty
+    // string keeps the field genuinely empty rather than becoming "1:1" as
+    // soon as either input is touched, so a required-field error still
+    // reads correctly.
+    if (!nextStart.trim() && !nextSize.trim()) {
+      onChange('');
+      return;
+    }
+    onChange(`${nextStart.trim()}:${nextSize.trim()}`);
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground">Юнит (снизу, с 1)</p>
+        <Input
+          type="number"
+          min={1}
+          value={startUnit ?? ''}
+          onChange={(e) => update(e.target.value, sizeUnits ?? '')}
+        />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground">Высота, U</p>
+        <Input
+          type="number"
+          min={1}
+          value={sizeUnits ?? ''}
+          onChange={(e) => update(startUnit ?? '', e.target.value)}
+        />
+      </div>
     </div>
   );
 }

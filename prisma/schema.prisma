@@ -143,6 +143,25 @@ enum FieldType {
   // like every other field type (generic read paths keep working), but
   // FieldAutoIdentifierValue is the source of truth for uniqueness.
   AUTO_IDENTIFIER
+  // Physical position inside a rack (31 August 2026, CMDB phase 5 — see
+  // it-passports-design.md section 8.8), used by the rack-elevation
+  // visualization. Entered manually by the user (not computed, unlike
+  // AUTO_IDENTIFIER — equipment height varies within one ObjectType, so
+  // there's nothing fixed to derive it from), stored in ObjectInstance.
+  // values as the plain string "{startUnit}:{sizeUnits}" (e.g. "12:2"),
+  // like every other field type — no relational mirror table, this is
+  // advisory data: the rack-elevation page detects and flags overlapping
+  // ranges/over-capacity directly on the picture (same scan-and-report
+  // pattern as /data-integrity) rather than blocking the save, so a
+  // typo'd position doesn't lock up the passport form the way an
+  // AUTO_IDENTIFIER collision would. Requires a sibling OBJECT_REFERENCE
+  // field targeting LOCATION on the same ObjectType to know which rack the
+  // position is relative to (FieldDefinition.rackPositionRackFieldKey),
+  // same "sibling field by key" pattern as
+  // FieldDefinition.autoIdentifierRackFieldKey. Deliberately scoped to
+  // top-level fields only, not TABLE columns, same reasoning as
+  // AUTO_IDENTIFIER above.
+  RACK_POSITION
 
   @@map("field_type")
 }
@@ -248,6 +267,12 @@ model Location {
   name        String
   code        String
   rowCode     String?      @map("row_code") // ряд — только для RACK; см. комментарий у LocationKind
+  // Вместимость стойки в юнитах (U) — только для RACK, используется
+  // визуализацией раскладки стойки (CMDB фаза 5, 31 августа 2026, см.
+  // it-passports-design.md раздел 8.8). NULL, пока админ не указал —
+  // страница раскладки в этом случае просит заполнить, ничего не рисует
+  // наугад.
+  rackUnits   Int?         @map("rack_units")
   address     String?
   city        String?
   country     String?
@@ -472,6 +497,12 @@ model FieldDefinition {
   // Restrict so a code can't be deleted while some field is configured to
   // use it (checked proactively in deleteEquipmentTypeCode).
   autoIdentifierEquipmentTypeCodeId String? @map("auto_identifier_equipment_type_code_id") @db.Uuid
+  // Only meaningful for RACK_POSITION fields (phase 5) — same "sibling
+  // field key, not FK id" pattern as autoIdentifierRackFieldKey above, and
+  // for the same reason (points at a row of the same table being
+  // defined/edited in the same request). See FieldType.RACK_POSITION doc
+  // comment.
+  rackPositionRackFieldKey          String? @map("rack_position_rack_field_key")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

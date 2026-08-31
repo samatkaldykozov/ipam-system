@@ -66,6 +66,18 @@ function formatFieldValue(type: string, value: unknown): ReactNode {
       <code className="rounded bg-muted px-1.5 py-0.5 text-sm">{value}</code>
     );
   }
+  if (type === 'RACK_POSITION' && typeof value === 'string') {
+    const [start, size] = value.split(':').map((n) => Number(n));
+    if (Number.isFinite(start) && Number.isFinite(size) && size > 0) {
+      const end = start + size - 1;
+      return (
+        <span>
+          Юнит {size > 1 ? `${start}–${end}` : start} ({size}U)
+        </span>
+      );
+    }
+    return <span>{value}</span>;
+  }
   return (
     <span className="whitespace-pre-wrap break-words">{String(value)}</span>
   );

@@ -58,6 +58,7 @@ const EMPTY: LocationValues = {
   name: '',
   code: '',
   rowCode: '',
+  rackUnits: undefined,
   address: '',
   city: '',
   country: '',
@@ -91,6 +92,7 @@ export function LocationFormDialog({
           name: location.name,
           code: location.code,
           rowCode: location.rowCode ?? '',
+          rackUnits: location.rackUnits ?? undefined,
           address: location.address ?? '',
           city: location.city ?? '',
           country: location.country ?? '',
@@ -241,23 +243,49 @@ export function LocationFormDialog({
             </div>
 
             {kind === 'RACK' ? (
-              <FormField
-                control={form.control}
-                name="rowCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Row</FormLabel>
-                    <FormControl>
-                      <Input placeholder="A" {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      Optional row letter/number, if racks in this zone are
-                      arranged in rows. Leave empty if they aren&apos;t.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="rowCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Row</FormLabel>
+                      <FormControl>
+                        <Input placeholder="A" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Optional row letter/number, if racks in this zone are
+                        arranged in rows. Leave empty if they aren&apos;t.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="rackUnits"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Rack units (U)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={60}
+                          placeholder="42"
+                          {...field}
+                          value={field.value ?? ''}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Total capacity in U — used by the rack elevation view.
+                        Leave empty if not known yet.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             ) : null}
 
             <FormField

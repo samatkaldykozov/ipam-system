@@ -113,6 +113,21 @@ export const locationSchema = z.object({
     .max(10, 'Row code is too long')
     .regex(/^[A-Za-z0-9]*$/, 'Use letters and numbers only')
     .optional(),
+  // Rack capacity in U — only meaningful for kind RACK, used by the
+  // rack-elevation visualization (phase 5, see it-passports-design.md
+  // section 8.8). Empty string clears it back to NULL, same convention as
+  // latitude/longitude below.
+  rackUnits: z
+    .union([
+      z.literal(''),
+      z.coerce
+        .number()
+        .int()
+        .min(1, 'Must be at least 1')
+        .max(60, 'Must be 60 or less'),
+    ])
+    .optional()
+    .transform((v) => (v === '' || v === undefined ? undefined : Number(v))),
   address: z.string().max(255, 'Address is too long').optional(),
   city: z.string().max(120, 'City is too long').optional(),
   country: z.string().max(120, 'Country is too long').optional(),
@@ -230,6 +245,15 @@ export const equipmentTypeCodeSchema = z.object({
 
 export type EquipmentTypeCodeValues = z.infer<typeof equipmentTypeCodeSchema>;
 
+// RACK_POSITION field values (CMDB phase 5, see schema.prisma's
+// FieldType.RACK_POSITION doc comment) are stored as plain strings
+// "{startUnit}:{sizeUnits}", e.g. "12:2" for a 2U device starting at unit
+// 12. Exported so passport-form.tsx (building the string from two number
+// inputs) and validate-values.ts (checking a submitted value's shape)
+// share one definition of the format instead of two regexes drifting
+// apart.
+export const rackPositionValueRegex = /^[1-9]\d*:[1-9]\d*$/;
+
 export const FIELD_DEFINITION_TYPES = [
   'TEXT',
   'LONG_TEXT',
@@ -252,6 +276,11 @@ export const FIELD_DEFINITION_TYPES = [
   // it-passports-design.md section 8.1 item 3. Deliberately not in
   // TABLE_COLUMN_TYPES below — scoped to regular fields only for now.
   'AUTO_IDENTIFIER',
+  // Manually entered rack position, "{startUnit}:{sizeUnits}" (CMDB phase
+  // 5) — see schema.prisma's FieldType.RACK_POSITION doc comment and
+  // it-passports-design.md section 8.8. Deliberately not in
+  // TABLE_COLUMN_TYPES below, same reasoning as AUTO_IDENTIFIER.
+  'RACK_POSITION',
 ] as const;
 
 // Which kind of object an OBJECT_REFERENCE field/column points to — mirrors
@@ -293,6 +322,11 @@ export const tableColumnSchema = z
     validateAsIp: z.boolean().default(false),
     // Only meaningful when type is 'OBJECT_REFERENCE' — same two config
     // fields as fieldDefinitionSchema below, scoped to one column.
+    // referenceObjectTypeId left empty (null) when referenceTargetKind is
+    // 'OBJECT_TYPE' means "any object type" — see the doc comment on the
+    // equivalent field below for why this was relaxed (31 August 2026,
+    // CMDB phase 5 — patch-cord columns need to point at any of several
+    // equipment types, not one fixed type).
     referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
     referenceObjectTypeId: z.string().min(1).optional().nullable(),
   })
@@ -301,16 +335,6 @@ export const tableColumnSchema = z
     {
       message: 'Choose what this column links to',
       path: ['referenceTargetKind'],
-    },
-  )
-  .refine(
-    (data) =>
-      data.type !== 'OBJECT_REFERENCE' ||
-      data.referenceTargetKind !== 'OBJECT_TYPE' ||
-      !!data.referenceObjectTypeId,
-    {
-      message: 'Choose which object type this column links to',
-      path: ['referenceObjectTypeId'],
     },
   );
 
@@ -340,7 +364,17 @@ export const fieldDefinitionSchema = z
     validateAsIp: z.boolean().default(false),
     // Only meaningful for OBJECT_REFERENCE fields — see
     // FieldDefinition.referenceTargetKind/referenceObjectTypeId in
-    // schema.prisma.
+    // schema.prisma. referenceObjectTypeId left empty (null) when
+    // referenceTargetKind is 'OBJECT_TYPE' means "any object type" — a
+    // deliberate relaxation (31 August 2026, CMDB phase 5, see
+    // it-passports-design.md section 8.8): a patch-cord field needs to
+    // point at whichever equipment type is on the other end of a cable
+    // (server, switch, UPS, ...), not one fixed type chosen in advance.
+    // validateObjectReferenceValues/validateTableObjectReferenceValues
+    // (object-reference-utils.ts) already treated a falsy
+    // referenceObjectTypeId as "no restriction" from the start, so this
+    // only required loosening the constructor's own validation, not the
+    // save-time checks.
     referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
     referenceObjectTypeId: z.string().min(1).optional().nullable(),
     // Only meaningful when type is 'AUTO_IDENTIFIER' — see
@@ -348,6 +382,9 @@ export const fieldDefinitionSchema = z
     // autoIdentifierEquipmentTypeCodeId in schema.prisma.
     autoIdentifierRackFieldKey: z.string().min(1).optional().nullable(),
     autoIdentifierEquipmentTypeCodeId: z.string().min(1).optional().nullable(),
+    // Only meaningful when type is 'RACK_POSITION' — see
+    // FieldDefinition.rackPositionRackFieldKey in schema.prisma.
+    rackPositionRackFieldKey: z.string().min(1).optional().nullable(),
   })
   .refine((data) => data.type !== 'SELECT' || data.options.length > 0, {
     message: 'Add at least one option',
@@ -366,16 +403,6 @@ export const fieldDefinitionSchema = z
   )
   .refine(
     (data) =>
-      data.type !== 'OBJECT_REFERENCE' ||
-      data.referenceTargetKind !== 'OBJECT_TYPE' ||
-      !!data.referenceObjectTypeId,
-    {
-      message: 'Choose which object type this field links to',
-      path: ['referenceObjectTypeId'],
-    },
-  )
-  .refine(
-    (data) =>
       data.type !== 'AUTO_IDENTIFIER' || !!data.autoIdentifierRackFieldKey,
     {
       message: 'Choose which field on this type supplies the rack',
@@ -389,6 +416,13 @@ export const fieldDefinitionSchema = z
     {
       message: 'Choose an equipment-type code',
       path: ['autoIdentifierEquipmentTypeCodeId'],
+    },
+  )
+  .refine(
+    (data) => data.type !== 'RACK_POSITION' || !!data.rackPositionRackFieldKey,
+    {
+      message: 'Choose which field on this type supplies the rack',
+      path: ['rackPositionRackFieldKey'],
     },
   );
 

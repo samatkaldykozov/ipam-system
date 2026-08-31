@@ -25,6 +25,7 @@ export const FIELD_TYPE_LABELS: Record<string, string> = {
   IP_REFERENCE: 'Ссылка на IP-адрес (IPAM)',
   OBJECT_REFERENCE: 'Ссылка на объект CMDB',
   AUTO_IDENTIFIER: 'Составной идентификатор (авто)',
+  RACK_POSITION: 'Позиция в стойке (юниты)',
 };
 
 export { REFERENCE_TARGET_KINDS, TABLE_COLUMN_TYPES };
