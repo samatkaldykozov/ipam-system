@@ -213,7 +213,7 @@ function IncomingReferencesCard({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">
-          Связанные объекты — ссылаются на этот паспорт
+          Связанные объекты — ссылаются на эту КЕ
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

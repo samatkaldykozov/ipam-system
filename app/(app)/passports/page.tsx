@@ -2,7 +2,11 @@ import { redirect } from 'next/navigation';
 
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getCurrentUser, hasPassportAccess, canEditPassports } from '@/lib/auth';
+import {
+  getCurrentUser,
+  hasPassportAccess,
+  canEditPassports,
+} from '@/lib/auth';
 import { getPassports } from '@/app/(app)/passports/actions';
 import { PassportsTable } from '@/app/(app)/passports/passports-table';
 
@@ -26,12 +30,12 @@ export default async function PassportsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Паспорта"
-        description="Паспорта ИТ-объектов — базы данных, КИС, ЦОД и других систем."
+        title="CMDB"
+        description="Конфигурационные единицы ИТ-инфраструктуры — базы данных, КИС, ЦОД и других систем."
       />
       <Card>
         <CardHeader>
-          <CardTitle>Список паспортов</CardTitle>
+          <CardTitle>Список КЕ</CardTitle>
         </CardHeader>
         <CardContent>
           <PassportsTable items={items} canEdit={canEdit} />

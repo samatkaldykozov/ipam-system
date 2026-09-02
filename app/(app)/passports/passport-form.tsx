@@ -347,7 +347,7 @@ export function PassportForm({
     setFieldErrors({});
 
     if (!name.trim()) {
-      setFieldErrors({ name: 'Укажите название паспорта' });
+      setFieldErrors({ name: 'Укажите название КЕ' });
       return;
     }
 
@@ -406,9 +406,7 @@ export function PassportForm({
       return;
     }
 
-    toast.success(
-      result.message ?? (isEdit ? 'Паспорт обновлён' : 'Паспорт создан'),
-    );
+    toast.success(result.message ?? (isEdit ? 'КЕ обновлена' : 'КЕ создана'));
     router.push(
       isEdit
         ? `/passports/${passport!.id}`
@@ -423,7 +421,7 @@ export function PassportForm({
     <form onSubmit={handleSubmit} className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Название паспорта</CardTitle>
+          <CardTitle className="text-base">Название КЕ</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1.5">
           <Input
@@ -653,7 +651,7 @@ export function PassportForm({
           ) : isEdit ? (
             'Сохранить'
           ) : (
-            'Создать паспорт'
+            'Создать КЕ'
           )}
         </Button>
       </div>

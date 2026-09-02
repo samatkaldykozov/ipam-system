@@ -73,8 +73,8 @@ export function DeleteObjectTypeDialog({
               </p>
               {hasInstances ? (
                 <p className="text-destructive">
-                  По этому типу заведено {objectType._count.instances}{' '}
-                  паспорт(ов). Сначала удалите или перенесите их.
+                  По этому типу заведено {objectType._count.instances} КЕ.
+                  Сначала удалите или перенесите их.
                 </p>
               ) : null}
               {error ? <p className="text-destructive">{error}</p> : null}

@@ -125,13 +125,13 @@ export async function validateObjectReferenceValues(
     const instance = instanceById.get(targetId);
     if (!instance) {
       fieldErrors[field.key] =
-        `«${field.label}»: выбранный паспорт больше не существует — выберите другой`;
+        `«${field.label}»: выбранная КЕ больше не существует — выберите другую`;
     } else if (
       field.referenceObjectTypeId &&
       instance.objectTypeId !== field.referenceObjectTypeId
     ) {
       fieldErrors[field.key] =
-        `«${field.label}»: выбранный паспорт не того типа — выберите другой`;
+        `«${field.label}»: выбранная КЕ не того типа — выберите другую`;
     }
   }
   return fieldErrors;
@@ -275,13 +275,13 @@ export async function validateTableObjectReferenceValues(
     const instance = instanceById.get(w.targetId);
     if (!instance) {
       fieldErrors[w.fieldKey] =
-        `«${w.fieldLabel}», строка ${w.rowIndex + 1}: выбранный паспорт больше не существует — выберите другой`;
+        `«${w.fieldLabel}», строка ${w.rowIndex + 1}: выбранная КЕ больше не существует — выберите другую`;
     } else if (
       w.column.referenceObjectTypeId &&
       instance.objectTypeId !== w.column.referenceObjectTypeId
     ) {
       fieldErrors[w.fieldKey] =
-        `«${w.fieldLabel}», строка ${w.rowIndex + 1}: выбранный паспорт не того типа — выберите другой`;
+        `«${w.fieldLabel}», строка ${w.rowIndex + 1}: выбранная КЕ не того типа — выберите другую`;
     }
   }
   return fieldErrors;

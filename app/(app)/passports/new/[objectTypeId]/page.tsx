@@ -33,7 +33,7 @@ export default async function NewPassportPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Новый паспорт: ${objectType.name}`}
+        title={`Новая КЕ: ${objectType.name}`}
         description="Заполните поля ниже. Обязательные отмечены звёздочкой."
       />
       <PassportForm objectType={objectType} users={users} passport={null} />

@@ -910,7 +910,7 @@ export async function createPassport(
 
   const name = input.name.trim();
   if (!name) {
-    return { ok: false, fieldErrors: { name: 'Укажите название паспорта' } };
+    return { ok: false, fieldErrors: { name: 'Укажите название КЕ' } };
   }
 
   const objectType = await prisma.objectType.findUnique({
@@ -1034,11 +1034,11 @@ export async function createPassport(
     revalidatePath('/passports');
     return {
       ok: true,
-      message: 'Паспорт создан',
+      message: 'КЕ создана',
       data: { id: instance.id },
     };
   } catch {
-    return { ok: false, message: 'Не удалось создать паспорт' };
+    return { ok: false, message: 'Не удалось создать КЕ' };
   }
 }
 
@@ -1058,7 +1058,7 @@ export async function updatePassport(
 
   const name = input.name.trim();
   if (!name) {
-    return { ok: false, fieldErrors: { name: 'Укажите название паспорта' } };
+    return { ok: false, fieldErrors: { name: 'Укажите название КЕ' } };
   }
 
   const existing = await prisma.objectInstance.findUnique({
@@ -1066,7 +1066,7 @@ export async function updatePassport(
     include: { objectType: { include: { fields: true } } },
   });
   if (!existing) {
-    return { ok: false, message: 'Паспорт не найден' };
+    return { ok: false, message: 'КЕ не найдена' };
   }
 
   const validated = validatePassportValues(
@@ -1188,9 +1188,9 @@ export async function updatePassport(
     await writeAudit('UPDATE', id, currentUser.id, { name });
     revalidatePath('/passports');
     revalidatePath(`/passports/${id}`);
-    return { ok: true, message: 'Паспорт обновлён' };
+    return { ok: true, message: 'КЕ обновлена' };
   } catch {
-    return { ok: false, message: 'Не удалось обновить паспорт' };
+    return { ok: false, message: 'Не удалось обновить КЕ' };
   }
 }
 
@@ -1205,7 +1205,7 @@ export async function deletePassport(id: string): Promise<ActionResult> {
 
   const existing = await prisma.objectInstance.findUnique({ where: { id } });
   if (!existing) {
-    return { ok: false, message: 'Паспорт не найден' };
+    return { ok: false, message: 'КЕ не найдена' };
   }
 
   // An OBJECT_REFERENCE field (or column) on another passport can point at
@@ -1239,7 +1239,7 @@ export async function deletePassport(id: string): Promise<ActionResult> {
     );
     return {
       ok: false,
-      message: `Этот паспорт используется в паспорте: ${names.join(', ')} — сначала удалите ссылку там`,
+      message: `Эта КЕ используется в другой КЕ: ${names.join(', ')} — сначала удалите ссылку там`,
     };
   }
 
@@ -1249,8 +1249,8 @@ export async function deletePassport(id: string): Promise<ActionResult> {
     await prisma.objectInstance.delete({ where: { id } });
     await writeAudit('DELETE', id, currentUser.id, { name: existing.name });
     revalidatePath('/passports');
-    return { ok: true, message: 'Паспорт удалён' };
+    return { ok: true, message: 'КЕ удалена' };
   } catch {
-    return { ok: false, message: 'Не удалось удалить паспорт' };
+    return { ok: false, message: 'Не удалось удалить КЕ' };
   }
 }

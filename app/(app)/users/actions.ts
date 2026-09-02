@@ -122,7 +122,7 @@ export async function updateUserPassportRole(
     return {
       ok: false,
       message:
-        'You cannot change your own Passport role. Ask another Passport Admin instead.',
+        'You cannot change your own CMDB role. Ask another Passport Admin instead.',
     };
   }
 
@@ -145,9 +145,9 @@ export async function updateUserPassportRole(
       newPassportRole: roleName,
     });
     revalidatePath('/users');
-    return { ok: true, message: `Passport role updated to ${roleName}` };
+    return { ok: true, message: `CMDB role updated to ${roleName}` };
   } catch {
-    return { ok: false, message: 'Failed to update Passport role' };
+    return { ok: false, message: 'Failed to update CMDB role' };
   }
 }
 

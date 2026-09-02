@@ -46,11 +46,11 @@ export function DeletePassportDialog({
     setDeleting(false);
 
     if (!result.ok) {
-      setError(result.message ?? 'Не удалось удалить паспорт');
+      setError(result.message ?? 'Не удалось удалить КЕ');
       return;
     }
 
-    toast.success(result.message ?? 'Паспорт удалён');
+    toast.success(result.message ?? 'КЕ удалена');
     onOpenChange(false);
   }
 
@@ -58,11 +58,11 @@ export function DeletePassportDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Удалить паспорт</AlertDialogTitle>
+          <AlertDialogTitle>Удалить КЕ</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2">
               <p>
-                Удалить паспорт{' '}
+                Удалить КЕ{' '}
                 <span className="font-medium text-foreground">
                   {passport.name}
                 </span>

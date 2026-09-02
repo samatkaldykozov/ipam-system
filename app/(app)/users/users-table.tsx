@@ -24,7 +24,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { EmptyState } from '@/components/empty-state';
-import { updateUserRole, updateUserPassportRole } from '@/app/(app)/users/actions';
+import {
+  updateUserRole,
+  updateUserPassportRole,
+} from '@/app/(app)/users/actions';
 import { InviteUserDialog } from '@/app/(app)/users/invite-user-dialog';
 
 type UserWithRoles = User & { role: Role | null; passportRole: Role | null };
@@ -44,7 +47,8 @@ interface UsersTableProps {
 const NO_PASSPORT_ROLE = '__none__';
 
 function roleBadgeVariant(roleName: string | undefined) {
-  if (roleName === 'Admin' || roleName === 'Passport Admin') return 'default' as const;
+  if (roleName === 'Admin' || roleName === 'Passport Admin')
+    return 'default' as const;
   if (roleName === 'Network Engineer' || roleName === 'Passport Manager')
     return 'secondary' as const;
   return 'outline' as const;
@@ -85,10 +89,10 @@ export function UsersTable({
     setPendingPassportRoleId(null);
 
     if (!result.ok) {
-      toast.error(result.message ?? 'Failed to update Passport role');
+      toast.error(result.message ?? 'Failed to update CMDB role');
       return;
     }
-    toast.success(result.message ?? 'Passport role updated');
+    toast.success(result.message ?? 'CMDB role updated');
   }
 
   const inviteButton = (
@@ -128,7 +132,7 @@ export function UsersTable({
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Role (IPAM)</TableHead>
-              <TableHead>Role (Паспорта)</TableHead>
+              <TableHead>Role (CMDB)</TableHead>
               <TableHead>Joined</TableHead>
             </TableRow>
           </TableHeader>
@@ -191,7 +195,9 @@ export function UsersTable({
                   <TableCell>
                     {isSelf || !canManagePassportRoles ? (
                       user.passportRole ? (
-                        <Badge variant={roleBadgeVariant(user.passportRole.name)}>
+                        <Badge
+                          variant={roleBadgeVariant(user.passportRole.name)}
+                        >
                           {user.passportRole.name}
                         </Badge>
                       ) : (

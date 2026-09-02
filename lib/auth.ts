@@ -12,7 +12,8 @@ export type Role = 'Admin' | 'Network Engineer' | 'Viewer';
 // Roles for the Паспорта (IT-object passports) branch — independent of the
 // IPAM roles above. See docs/it-passports-design.md section 2: a user can
 // hold one role of each kind at once, or none in one of the two branches.
-export type PassportRole = 'Passport Admin' | 'Passport Manager' | 'Passport Guest';
+export type PassportRole =
+  'Passport Admin' | 'Passport Manager' | 'Passport Guest';
 
 export type CurrentUser = {
   id: string;
@@ -93,5 +94,7 @@ export function isPassportAdmin(passportRole: PassportRole | null): boolean {
 }
 
 export function canEditPassports(passportRole: PassportRole | null): boolean {
-  return passportRole === 'Passport Admin' || passportRole === 'Passport Manager';
+  return (
+    passportRole === 'Passport Admin' || passportRole === 'Passport Manager'
+  );
 }

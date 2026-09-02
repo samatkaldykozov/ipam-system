@@ -357,7 +357,9 @@ export async function deleteIpAddress(id: string): Promise<ActionResult> {
         where: { ipAddressId: id },
         take: 5,
         include: {
-          tableFieldRow: { include: { objectInstance: { select: { name: true } } } },
+          tableFieldRow: {
+            include: { objectInstance: { select: { name: true } } },
+          },
         },
       }),
     ]);
@@ -370,7 +372,7 @@ export async function deleteIpAddress(id: string): Promise<ActionResult> {
       );
       return {
         ok: false,
-        message: `Этот адрес используется в паспорте: ${names.join(', ')} — сначала удалите ссылку там`,
+        message: `Этот адрес используется в КЕ: ${names.join(', ')} — сначала удалите ссылку там`,
       };
     }
 

@@ -156,7 +156,7 @@ export function Sidebar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ipam">IPAM</SelectItem>
-              <SelectItem value="passport">Паспорта</SelectItem>
+              <SelectItem value="passport">CMDB</SelectItem>
             </SelectContent>
           </Select>
         </div>

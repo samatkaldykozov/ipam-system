@@ -66,9 +66,9 @@ export function DeleteFieldDialog({
                 <span className="font-medium text-foreground">
                   {field.label}
                 </span>
-                ? Уже заполненные значения этого поля в существующих
-                паспортах останутся в базе, но перестанут отображаться. Это
-                действие необратимо.
+                ? Уже заполненные значения этого поля в существующих КЕ
+                останутся в базе, но перестанут отображаться. Это действие
+                необратимо.
               </p>
               {error ? <p className="text-destructive">{error}</p> : null}
             </div>

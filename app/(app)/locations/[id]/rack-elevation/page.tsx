@@ -96,7 +96,7 @@ export default async function RackElevationPage({
     <div className="space-y-6">
       <PageHeader
         title={`Раскладка стойки — ${data.locationName}`}
-        description={`${data.rackUnits}U. Юниты нумеруются снизу вверх (юнит 1 — самый нижний). Позиция заполняется вручную в паспорте оборудования и не проверяется при сохранении — эта страница только показывает текущую картину.`}
+        description={`${data.rackUnits}U. Юниты нумеруются снизу вверх (юнит 1 — самый нижний). Позиция заполняется вручную в КЕ оборудования и не проверяется при сохранении — эта страница только показывает текущую картину.`}
       />
 
       {hasProblems ? (
@@ -205,7 +205,7 @@ export default async function RackElevationPage({
             <CardTitle className="text-base">Без указанной позиции</CardTitle>
             <CardDescription>
               Это оборудование привязано к стойке «{data.locationName}», но в
-              его паспорте не заполнено поле «Позиция в стойке».
+              его КЕ не заполнено поле «Позиция в стойке».
             </CardDescription>
           </CardHeader>
           <CardContent>

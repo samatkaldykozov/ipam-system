@@ -38,7 +38,7 @@ export const REFERENCE_TARGET_KIND_LABELS: Record<
   string
 > = {
   LOCATION: 'Узел дерева локаций',
-  OBJECT_TYPE: 'Паспорт определённого типа',
+  OBJECT_TYPE: 'КЕ определённого типа',
 };
 
 export { RELATIONSHIP_TYPES };
@@ -60,7 +60,7 @@ export const RELATIONSHIP_TYPE_LABELS: Record<RelationshipTypeValue, string> = {
 
 export const RELATIONSHIP_TYPE_HELP: Record<RelationshipTypeValue, string> = {
   CONTAINMENT:
-    'Целевой паспорт — контейнер для этого объекта (например, шасси для встраиваемого модуля). Для размещения в стойке используйте ссылку на дерево локаций — там это уже подразумевается.',
+    'Целевая КЕ — контейнер для этого объекта (например, шасси для встраиваемого модуля). Для размещения в стойке используйте ссылку на дерево локаций — там это уже подразумевается.',
   DEPENDENCY:
     'Этот объект не может работать без целевого — если целевой выйдет из строя, этот тоже пострадает. Единственный тип связи, который страница impact-анализа прослеживает по цепочке.',
   ASSOCIATION:

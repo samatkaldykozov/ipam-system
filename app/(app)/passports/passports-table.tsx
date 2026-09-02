@@ -58,9 +58,8 @@ interface PassportsTableProps {
 export function PassportsTable({ items, canEdit }: PassportsTableProps) {
   const [search, setSearch] = React.useState('');
   const [typeFilter, setTypeFilter] = React.useState('ALL');
-  const [deleteTarget, setDeleteTarget] = React.useState<PassportListItem | null>(
-    null,
-  );
+  const [deleteTarget, setDeleteTarget] =
+    React.useState<PassportListItem | null>(null);
   const [importOpen, setImportOpen] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
 
@@ -72,13 +71,16 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
         name: item.objectType.name,
       });
     }
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
   }, [items]);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     return items.filter((item) => {
-      if (typeFilter !== 'ALL' && item.objectType.id !== typeFilter) return false;
+      if (typeFilter !== 'ALL' && item.objectType.id !== typeFilter)
+        return false;
       if (!q) return true;
       return item.name.toLowerCase().includes(q);
     });
@@ -102,7 +104,7 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch {
-      toast.error('Не удалось экспортировать паспорта');
+      toast.error('Не удалось экспортировать КЕ');
     } finally {
       setExporting(false);
     }
@@ -112,7 +114,7 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
     <Button asChild>
       <Link href="/passports/new">
         <Plus className="mr-2 h-4 w-4" />
-        Новый паспорт
+        Новая КЕ
       </Link>
     </Button>
   ) : null;
@@ -177,7 +179,9 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
                 <TableHead>Ответственные</TableHead>
                 <TableHead>Обновлён</TableHead>
                 {canEdit ? (
-                  <TableHead className="w-[60px] text-right">Действия</TableHead>
+                  <TableHead className="w-[60px] text-right">
+                    Действия
+                  </TableHead>
                 ) : null}
               </TableRow>
             </TableHeader>
@@ -185,7 +189,10 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
               {filtered.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">
-                    <Link href={`/passports/${item.id}`} className="hover:underline">
+                    <Link
+                      href={`/passports/${item.id}`}
+                      className="hover:underline"
+                    >
                       {item.name}
                     </Link>
                   </TableCell>
@@ -206,7 +213,11 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Открыть действия</span>
                           </Button>
@@ -240,14 +251,12 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
         <EmptyState
           icon={<FileStack className="h-6 w-6" />}
           title={
-            items.length === 0
-              ? 'Пока нет ни одного паспорта'
-              : 'Ничего не найдено'
+            items.length === 0 ? 'Пока нет ни одной КЕ' : 'Ничего не найдено'
           }
           description={
             items.length === 0
               ? canEdit
-                ? 'Создайте первый паспорт.'
+                ? 'Создайте первую КЕ.'
                 : 'Обратитесь к Passport Admin или Passport Manager.'
               : 'Попробуйте изменить условия поиска.'
           }
@@ -267,7 +276,7 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
           open={importOpen}
           onOpenChange={setImportOpen}
           title={`Импорт: ${selectedType?.name ?? ''}`}
-          description="Массовое создание паспортов из CSV-файла. Табличные поля (например, «Состав системы») в CSV не входят — заполните их потом в форме."
+          description="Массовое создание КЕ из CSV-файла. Табличные поля (например, «Состав системы») в CSV не входят — заполните их потом в форме."
           columnsHint="name, + по одному столбцу на каждое нетабличное поле (ключ поля)"
           onImport={(csvText) => importPassportsCsv(typeFilter, csvText)}
         />

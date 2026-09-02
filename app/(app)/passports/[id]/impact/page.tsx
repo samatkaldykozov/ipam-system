@@ -60,8 +60,8 @@ export default async function ImpactAnalysisPage({
             Что пострадает, если этот объект выйдет из строя
           </CardTitle>
           <CardDescription>
-            Паспорта, которые зависят от этого объекта — напрямую или через
-            цепочку зависимостей (связь «Зависит от»).
+            КЕ, которые зависят от этого объекта — напрямую или через цепочку
+            зависимостей (связь «Зависит от»).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -79,8 +79,8 @@ export default async function ImpactAnalysisPage({
             От чего зависит этот объект
           </CardTitle>
           <CardDescription>
-            Паспорта, без которых этот объект не может работать — напрямую или
-            через цепочку зависимостей.
+            КЕ, без которых этот объект не может работать — напрямую или через
+            цепочку зависимостей.
           </CardDescription>
         </CardHeader>
         <CardContent>

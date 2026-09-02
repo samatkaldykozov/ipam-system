@@ -44,9 +44,7 @@ export default async function ObjectTypeDetailPage({
         title={objectType.name}
         description={objectType.description || `Код: ${objectType.code}`}
       >
-        <Badge variant="outline">
-          {objectType._count.instances} паспорт(ов)
-        </Badge>
+        <Badge variant="outline">{objectType._count.instances} КЕ</Badge>
       </PageHeader>
 
       <Card>

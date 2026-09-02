@@ -50,7 +50,7 @@ export const siteConfig = {
   ] as const,
   passportNav: [
     {
-      title: 'Паспорта',
+      title: 'CMDB',
       href: '/passports',
       icon: 'FileStack',
       adminOnly: false,

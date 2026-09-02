@@ -44,9 +44,8 @@ interface ObjectTypesTableProps {
 export function ObjectTypesTable({ objectTypes }: ObjectTypesTableProps) {
   const [search, setSearch] = React.useState('');
   const [formOpen, setFormOpen] = React.useState(false);
-  const [editTarget, setEditTarget] = React.useState<ObjectTypeWithCounts | null>(
-    null,
-  );
+  const [editTarget, setEditTarget] =
+    React.useState<ObjectTypeWithCounts | null>(null);
   const [deleteTarget, setDeleteTarget] =
     React.useState<ObjectTypeWithCounts | null>(null);
 
@@ -97,7 +96,7 @@ export function ObjectTypesTable({ objectTypes }: ObjectTypesTableProps) {
                 <TableHead>Код</TableHead>
                 <TableHead className="max-w-[280px]">Описание</TableHead>
                 <TableHead>Поля</TableHead>
-                <TableHead>Паспорта</TableHead>
+                <TableHead>КЕ</TableHead>
                 <TableHead>Создан</TableHead>
                 <TableHead className="w-[60px] text-right">Действия</TableHead>
               </TableRow>
@@ -106,7 +105,10 @@ export function ObjectTypesTable({ objectTypes }: ObjectTypesTableProps) {
               {filtered.map((ot) => (
                 <TableRow key={ot.id}>
                   <TableCell className="font-medium">
-                    <Link href={`/object-types/${ot.id}`} className="hover:underline">
+                    <Link
+                      href={`/object-types/${ot.id}`}
+                      className="hover:underline"
+                    >
                       {ot.name}
                     </Link>
                   </TableCell>
@@ -176,7 +178,7 @@ export function ObjectTypesTable({ objectTypes }: ObjectTypesTableProps) {
           }
           description={
             objectTypes.length === 0
-              ? 'Создайте первый тип паспорта — например, «Паспорт КИС» или «Паспорт БД».'
+              ? 'Создайте первый тип КЕ — например, «Паспорт КИС» или «Паспорт БД».'
               : 'Попробуйте изменить условия поиска.'
           }
           action={objectTypes.length === 0 ? newButton : undefined}

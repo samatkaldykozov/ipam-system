@@ -32,8 +32,8 @@ export default async function NewPassportPickerPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Новый паспорт"
-        description="Выберите тип ИТ-объекта, для которого создаётся паспорт."
+        title="Новая КЕ"
+        description="Выберите тип ИТ-объекта, для которого создаётся КЕ."
       />
       {objectTypes.length === 0 ? (
         <EmptyState
