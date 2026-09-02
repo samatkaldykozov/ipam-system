@@ -1,4 +1,4 @@
-import type { FieldDefinition, Prisma } from '@prisma/client';
+import type { FieldDefinition, Prisma, RelationshipType } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 
@@ -48,12 +48,20 @@ export async function syncFieldObjectReferenceLinks(
             fieldDefinitionId: field.id,
             targetLocationId: raw,
             targetObjectInstanceId: null,
+            relationshipType: null,
           }
         : {
             objectInstanceId,
             fieldDefinitionId: field.id,
             targetLocationId: null,
             targetObjectInstanceId: raw,
+            // Denormalized copy for getImpactAnalysis (1 September 2026, CMDB
+            // phase 6) — see FieldObjectReferenceValue.relationshipType's doc
+            // comment in schema.prisma. Falls back to ASSOCIATION for fields
+            // saved before this column existed on the field itself, though in
+            // practice the migration backfilled every existing OBJECT_TYPE-
+            // target field, so field.relationshipType should already be set.
+            relationshipType: field.relationshipType ?? 'ASSOCIATION',
           };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -145,6 +153,7 @@ type TableColumnLike = {
   type: string;
   referenceTargetKind?: string | null;
   referenceObjectTypeId?: string | null;
+  relationshipType?: string | null;
 };
 
 function parseTableColumns(raw: unknown): TableColumnLike[] {
@@ -155,6 +164,12 @@ export interface ObjectReferenceColumn {
   key: string;
   targetKind: 'LOCATION' | 'OBJECT_TYPE';
   referenceObjectTypeId: string | null;
+  // Null for targetKind LOCATION (containment via the location tree, never
+  // classified — see RelationshipType's doc comment in schema.prisma);
+  // falls back to ASSOCIATION for targetKind OBJECT_TYPE columns saved
+  // before this key existed in the stored JSON (1 September 2026, CMDB
+  // phase 6), same reasoning as syncFieldObjectReferenceLinks's fallback.
+  relationshipType: RelationshipType | null;
 }
 
 // The OBJECT_REFERENCE columns of one TABLE field, read from its stored
@@ -164,12 +179,20 @@ export function objectReferenceColumns(
 ): ObjectReferenceColumn[] {
   return parseTableColumns(field.tableColumns)
     .filter((c) => c.type === 'OBJECT_REFERENCE')
-    .map((c) => ({
-      key: c.key,
-      targetKind:
-        (c.referenceTargetKind as 'LOCATION' | 'OBJECT_TYPE') ?? 'LOCATION',
-      referenceObjectTypeId: c.referenceObjectTypeId ?? null,
-    }));
+    .map((c) => {
+      const targetKind =
+        (c.referenceTargetKind as 'LOCATION' | 'OBJECT_TYPE') ?? 'LOCATION';
+      return {
+        key: c.key,
+        targetKind,
+        referenceObjectTypeId: c.referenceObjectTypeId ?? null,
+        relationshipType:
+          targetKind === 'OBJECT_TYPE'
+            ? ((c.relationshipType as RelationshipType | null | undefined) ??
+              'ASSOCIATION')
+            : null,
+      };
+    });
 }
 
 // Same idea as objectReferenceColumns, but just the key list — used where
@@ -302,12 +325,14 @@ export async function syncTableCellObjectReferenceLinks(
               columnKey: column.key,
               targetLocationId: raw,
               targetObjectInstanceId: null,
+              relationshipType: null,
             }
           : {
               tableFieldRowId: row.id,
               columnKey: column.key,
               targetLocationId: null,
               targetObjectInstanceId: raw,
+              relationshipType: column.relationshipType,
             };
       })
       .filter((link): link is NonNullable<typeof link> => link !== null);

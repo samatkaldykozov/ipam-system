@@ -2,7 +2,10 @@ import { notFound, redirect } from 'next/navigation';
 
 import { PageHeader } from '@/components/page-header';
 import { getCurrentUser, hasPassportAccess } from '@/lib/auth';
-import { getPassportView } from '@/app/(app)/passports/actions';
+import {
+  getPassportView,
+  getIncomingReferences,
+} from '@/app/(app)/passports/actions';
 import { PassportViewCard } from '@/app/(app)/passports/[id]/passport-view';
 
 export const dynamic = 'force-dynamic';
@@ -28,11 +31,17 @@ export default async function PassportDetailPage({
   if (!data) {
     notFound();
   }
+  // Reciprocal half of the OBJECT_REFERENCE mechanism (1 September 2026,
+  // CMDB phase 6) — who else points at this passport. Fetched alongside
+  // getPassportView rather than folded into it, since it's a separate
+  // read concern (not this passport's own fields/values) with its own
+  // shape — see it-passports-design.md section 8.10.
+  const incomingReferences = await getIncomingReferences(id);
 
   return (
     <div className="space-y-6">
       <PageHeader title={data.name} />
-      <PassportViewCard data={data} />
+      <PassportViewCard data={data} incomingReferences={incomingReferences} />
     </div>
   );
 }

@@ -36,6 +36,9 @@ import {
   FIELD_TYPE_LABELS,
   REFERENCE_TARGET_KINDS,
   REFERENCE_TARGET_KIND_LABELS,
+  RELATIONSHIP_TYPES,
+  RELATIONSHIP_TYPE_LABELS,
+  RELATIONSHIP_TYPE_HELP,
   TABLE_COLUMN_TYPES,
   slugify,
   type EquipmentTypeCodeOption,
@@ -43,6 +46,7 @@ import {
   type FieldTypeValue,
   type ObjectTypeOption,
   type ReferenceTargetKindValue,
+  type RelationshipTypeValue,
   type TableColumnType,
 } from '@/app/(app)/object-types/types';
 
@@ -88,10 +92,12 @@ type FormValues = {
     validateAsIp: boolean;
     referenceTargetKind: ReferenceTargetKindValue | '';
     referenceObjectTypeId: string;
+    relationshipType: RelationshipTypeValue | '';
   }[];
   validateAsIp: boolean;
   referenceTargetKind: ReferenceTargetKindValue | '';
   referenceObjectTypeId: string;
+  relationshipType: RelationshipTypeValue | '';
   autoIdentifierRackFieldKey: string;
   autoIdentifierEquipmentTypeCodeId: string;
   rackPositionRackFieldKey: string;
@@ -111,6 +117,7 @@ const EMPTY: FormValues = {
   validateAsIp: false,
   referenceTargetKind: '',
   referenceObjectTypeId: '',
+  relationshipType: '',
   autoIdentifierRackFieldKey: '',
   autoIdentifierEquipmentTypeCodeId: '',
   rackPositionRackFieldKey: '',
@@ -185,18 +192,22 @@ export function FieldFormDialog({
                 validateAsIp?: boolean;
                 referenceTargetKind?: ReferenceTargetKindValue | null;
                 referenceObjectTypeId?: string | null;
+                relationshipType?: RelationshipTypeValue | null;
               }[]
             ).map((c) => ({
               ...c,
               validateAsIp: c.validateAsIp ?? false,
               referenceTargetKind: c.referenceTargetKind ?? '',
               referenceObjectTypeId: c.referenceObjectTypeId ?? '',
+              relationshipType: c.relationshipType ?? '',
             }))
           : [],
         validateAsIp: field.validateAsIp,
         referenceTargetKind:
           (field.referenceTargetKind as ReferenceTargetKindValue | null) ?? '',
         referenceObjectTypeId: field.referenceObjectTypeId ?? '',
+        relationshipType:
+          (field.relationshipType as RelationshipTypeValue | null) ?? '',
         autoIdentifierRackFieldKey: field.autoIdentifierRackFieldKey ?? '',
         autoIdentifierEquipmentTypeCodeId:
           field.autoIdentifierEquipmentTypeCodeId ?? '',
@@ -239,6 +250,13 @@ export function FieldFormDialog({
       // below, which offers that explicitly. No requirement to check here
       // any more (31 August 2026, CMDB phase 5 — see it-passports-design.md
       // section 8.8 for why this was relaxed).
+      if (
+        values.referenceTargetKind === 'OBJECT_TYPE' &&
+        !values.relationshipType
+      ) {
+        toast.error('Выберите тип связи (для impact-анализа)');
+        return;
+      }
     }
 
     if (values.type === 'AUTO_IDENTIFIER') {
@@ -270,6 +288,11 @@ export function FieldFormDialog({
           c.referenceTargetKind === 'OBJECT_TYPE'
             ? c.referenceObjectTypeId || null
             : null,
+        relationshipType:
+          c.type === 'OBJECT_REFERENCE' &&
+          c.referenceTargetKind === 'OBJECT_TYPE'
+            ? c.relationshipType || null
+            : null,
       }))
       .filter((c) => c.key && c.label);
     if (values.type === 'TABLE' && tableColumns.length === 0) {
@@ -286,6 +309,23 @@ export function FieldFormDialog({
     if (badReferenceColumn) {
       toast.error(
         `Столбец «${badReferenceColumn.label}»: выберите, на что он будет ссылаться`,
+      );
+      return;
+    }
+    // relationshipType IS required for OBJECT_TYPE-target columns (1
+    // September 2026, CMDB phase 6) — unlike referenceObjectTypeId above,
+    // there's no "any relationship" sentinel: every passport-to-passport
+    // link needs a classification for the impact-analysis page to make
+    // sense of it.
+    const badRelationshipColumn = tableColumns.find(
+      (c) =>
+        c.type === 'OBJECT_REFERENCE' &&
+        c.referenceTargetKind === 'OBJECT_TYPE' &&
+        !c.relationshipType,
+    );
+    if (badRelationshipColumn) {
+      toast.error(
+        `Столбец «${badRelationshipColumn.label}»: выберите тип связи`,
       );
       return;
     }
@@ -310,6 +350,11 @@ export function FieldFormDialog({
         values.type === 'OBJECT_REFERENCE' &&
         values.referenceTargetKind === 'OBJECT_TYPE'
           ? values.referenceObjectTypeId || null
+          : null,
+      relationshipType:
+        values.type === 'OBJECT_REFERENCE' &&
+        values.referenceTargetKind === 'OBJECT_TYPE'
+          ? values.relationshipType || null
           : null,
       autoIdentifierRackFieldKey:
         values.type === 'AUTO_IDENTIFIER'
@@ -568,6 +613,38 @@ export function FieldFormDialog({
                     на другом конце кабеля может быть сервер, коммутатор или
                     другое оборудование).
                   </p>
+                </div>
+              ) : null}
+              {watch('referenceTargetKind') === 'OBJECT_TYPE' ? (
+                <div className="space-y-1.5">
+                  <Label>Тип связи (для impact-анализа)</Label>
+                  <Controller
+                    control={control}
+                    name="relationshipType"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RELATIONSHIP_TYPES.map((rt) => (
+                            <SelectItem key={rt} value={rt}>
+                              {RELATIONSHIP_TYPE_LABELS[rt]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {watch('relationshipType') ? (
+                    <p className="text-xs text-muted-foreground">
+                      {
+                        RELATIONSHIP_TYPE_HELP[
+                          watch('relationshipType') as RelationshipTypeValue
+                        ]
+                      }
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -873,6 +950,34 @@ export function FieldFormDialog({
                             />
                           ) : null}
                         </div>
+                        {watch(`tableColumns.${index}.referenceTargetKind`) ===
+                        'OBJECT_TYPE' ? (
+                          <div className="space-y-1">
+                            <Controller
+                              control={control}
+                              name={
+                                `tableColumns.${index}.relationshipType` as const
+                              }
+                              render={({ field: f2 }) => (
+                                <Select
+                                  value={f2.value}
+                                  onValueChange={f2.onChange}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Тип связи…" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {RELATIONSHIP_TYPES.map((rt) => (
+                                      <SelectItem key={rt} value={rt}>
+                                        {RELATIONSHIP_TYPE_LABELS[rt]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -890,6 +995,7 @@ export function FieldFormDialog({
                     validateAsIp: false,
                     referenceTargetKind: '',
                     referenceObjectTypeId: '',
+                    relationshipType: '',
                   })
                 }
               >

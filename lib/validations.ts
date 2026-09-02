@@ -287,6 +287,19 @@ export const FIELD_DEFINITION_TYPES = [
 // the Prisma ReferenceTargetKind enum.
 export const REFERENCE_TARGET_KINDS = ['LOCATION', 'OBJECT_TYPE'] as const;
 
+// The ITIL/CMDB relationship taxonomy (1 September 2026, CMDB phase 6) —
+// mirrors the Prisma RelationshipType enum. Only meaningful for
+// OBJECT_REFERENCE fields/columns whose referenceTargetKind is OBJECT_TYPE
+// — see that enum's doc comment in schema.prisma for why LOCATION-target
+// ones never use this.
+export const RELATIONSHIP_TYPES = [
+  'CONTAINMENT',
+  'DEPENDENCY',
+  'ASSOCIATION',
+  'OWNERSHIP',
+  'IMPACT',
+] as const;
+
 // Column types allowed inside a TABLE field's own columns — TABLE can't
 // nest inside itself. IP_REFERENCE is allowed here too (26 August 2026,
 // extending the regular-field feature to table columns — see
@@ -329,12 +342,29 @@ export const tableColumnSchema = z
     // equipment types, not one fixed type).
     referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
     referenceObjectTypeId: z.string().min(1).optional().nullable(),
+    // Only meaningful when type is 'OBJECT_REFERENCE' and referenceTargetKind
+    // is 'OBJECT_TYPE' (a link to another passport, not a location node) —
+    // see RelationshipType's doc comment in schema.prisma. Required in that
+    // case (the refine below) so every passport-to-passport link is
+    // classified from the start, the same way referenceTargetKind itself is
+    // required.
+    relationshipType: z.enum(RELATIONSHIP_TYPES).optional().nullable(),
   })
   .refine(
     (data) => data.type !== 'OBJECT_REFERENCE' || !!data.referenceTargetKind,
     {
       message: 'Choose what this column links to',
       path: ['referenceTargetKind'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'OBJECT_REFERENCE' ||
+      data.referenceTargetKind !== 'OBJECT_TYPE' ||
+      !!data.relationshipType,
+    {
+      message: 'Choose what kind of relationship this column represents',
+      path: ['relationshipType'],
     },
   );
 
@@ -377,6 +407,11 @@ export const fieldDefinitionSchema = z
     // save-time checks.
     referenceTargetKind: z.enum(REFERENCE_TARGET_KINDS).optional().nullable(),
     referenceObjectTypeId: z.string().min(1).optional().nullable(),
+    // Only meaningful when type is 'OBJECT_REFERENCE' and referenceTargetKind
+    // is 'OBJECT_TYPE' — see FieldDefinition.relationshipType/
+    // RelationshipType in schema.prisma. Required in that case (the refine
+    // below), same treatment as referenceTargetKind itself.
+    relationshipType: z.enum(RELATIONSHIP_TYPES).optional().nullable(),
     // Only meaningful when type is 'AUTO_IDENTIFIER' — see
     // FieldDefinition.autoIdentifierRackFieldKey/
     // autoIdentifierEquipmentTypeCodeId in schema.prisma.
@@ -399,6 +434,16 @@ export const fieldDefinitionSchema = z
     {
       message: 'Choose what this field links to',
       path: ['referenceTargetKind'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'OBJECT_REFERENCE' ||
+      data.referenceTargetKind !== 'OBJECT_TYPE' ||
+      !!data.relationshipType,
+    {
+      message: 'Choose what kind of relationship this field represents',
+      path: ['relationshipType'],
     },
   )
   .refine(

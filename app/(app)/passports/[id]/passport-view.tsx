@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { Pencil } from 'lucide-react';
+import { Pencil, Share2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { PassportView } from '@/app/(app)/passports/types';
+import type { IncomingReference } from '@/app/(app)/passports/actions';
 import type { TableColumnDef } from '@/app/(app)/object-types/types';
+import { RELATIONSHIP_TYPE_LABELS } from '@/app/(app)/object-types/types';
 
 // Fields come back from getPassportView() already ordered globally and
 // already filtered to what the viewer is allowed to see; group into
@@ -85,9 +87,13 @@ function formatFieldValue(type: string, value: unknown): ReactNode {
 
 interface PassportViewCardProps {
   data: PassportView;
+  incomingReferences?: IncomingReference[];
 }
 
-export function PassportViewCard({ data }: PassportViewCardProps) {
+export function PassportViewCard({
+  data,
+  incomingReferences = [],
+}: PassportViewCardProps) {
   const groups = groupBySection(data.fields);
 
   return (
@@ -108,14 +114,22 @@ export function PassportViewCard({ data }: PassportViewCardProps) {
             </span>
           </p>
         </div>
-        {data.canEdit ? (
+        <div className="flex gap-2">
           <Button asChild variant="outline">
-            <Link href={`/passports/${data.id}/edit`}>
-              <Pencil className="mr-2 h-4 w-4" />
-              Редактировать
+            <Link href={`/passports/${data.id}/impact`}>
+              <Share2 className="mr-2 h-4 w-4" />
+              Impact-анализ
             </Link>
           </Button>
-        ) : null}
+          {data.canEdit ? (
+            <Button asChild variant="outline">
+              <Link href={`/passports/${data.id}/edit`}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Редактировать
+              </Link>
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {groups.map((group, groupIndex) => (
@@ -158,7 +172,77 @@ export function PassportViewCard({ data }: PassportViewCardProps) {
           Нет полей, доступных для просмотра с вашей ролью.
         </p>
       ) : null}
+
+      <IncomingReferencesCard references={incomingReferences} />
     </div>
+  );
+}
+
+// Reciprocal half of OBJECT_REFERENCE (1 September 2026, CMDB phase 6) — the
+// existing fields above only ever show this passport's own outgoing links;
+// this shows who else points AT it, grouped by relationship type so
+// "Зависит от" (things that would break if this one did) reads separately
+// from a looser "Связан с". See it-passports-design.md section 8.9.
+function IncomingReferencesCard({
+  references,
+}: {
+  references: IncomingReference[];
+}) {
+  if (references.length === 0) return null;
+
+  const groups = new Map<string, IncomingReference[]>();
+  for (const ref of references) {
+    const key = ref.relationshipType ?? 'ASSOCIATION';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(ref);
+  }
+  // Stable, meaningful order — DEPENDENCY first (the kind that matters most
+  // for "what breaks if I do"), IMPACT last (explicit, hand-asserted).
+  const order = [
+    'DEPENDENCY',
+    'IMPACT',
+    'CONTAINMENT',
+    'OWNERSHIP',
+    'ASSOCIATION',
+  ];
+  const sortedGroups = Array.from(groups.entries()).sort(
+    (a, b) => order.indexOf(a[0]) - order.indexOf(b[0]),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          Связанные объекты — ссылаются на этот паспорт
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {sortedGroups.map(([relType, refs]) => (
+          <div key={relType} className="space-y-1.5">
+            <p className="text-sm font-medium text-muted-foreground">
+              {RELATIONSHIP_TYPE_LABELS[
+                relType as keyof typeof RELATIONSHIP_TYPE_LABELS
+              ] ?? relType}
+            </p>
+            <ul className="space-y-1">
+              {refs.map((ref, i) => (
+                <li key={`${ref.sourceId}-${i}`} className="text-sm">
+                  <Link
+                    href={`/passports/${ref.sourceId}`}
+                    className="text-primary hover:underline"
+                  >
+                    {ref.sourceName}
+                  </Link>{' '}
+                  <span className="text-muted-foreground">
+                    ({ref.sourceTypeName}, поле «{ref.fieldLabel}»)
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

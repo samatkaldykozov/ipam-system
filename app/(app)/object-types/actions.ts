@@ -308,6 +308,7 @@ type FieldDefinitionInput = {
     validateAsIp: boolean;
     referenceTargetKind?: string | null;
     referenceObjectTypeId?: string | null;
+    relationshipType?: string | null;
   }[];
   validateAsIp: boolean;
   // Only meaningful when type is 'OBJECT_REFERENCE' — see
@@ -315,6 +316,10 @@ type FieldDefinitionInput = {
   // schema.prisma.
   referenceTargetKind?: string | null;
   referenceObjectTypeId?: string | null;
+  // Only meaningful when type is 'OBJECT_REFERENCE' and referenceTargetKind
+  // is 'OBJECT_TYPE' — see FieldDefinition.relationshipType/RelationshipType
+  // in schema.prisma.
+  relationshipType?: string | null;
   // Only meaningful when type is 'AUTO_IDENTIFIER' — see
   // FieldDefinition.autoIdentifierRackFieldKey/
   // autoIdentifierEquipmentTypeCodeId in schema.prisma.
@@ -603,6 +608,11 @@ export async function createFieldDefinition(
             data.referenceTargetKind === 'OBJECT_TYPE'
               ? data.referenceObjectTypeId
               : null,
+          relationshipType:
+            data.type === 'OBJECT_REFERENCE' &&
+            data.referenceTargetKind === 'OBJECT_TYPE'
+              ? data.relationshipType
+              : null,
           autoIdentifierRackFieldKey:
             data.type === 'AUTO_IDENTIFIER'
               ? data.autoIdentifierRackFieldKey
@@ -784,6 +794,11 @@ export async function updateFieldDefinition(
             data.type === 'OBJECT_REFERENCE' &&
             data.referenceTargetKind === 'OBJECT_TYPE'
               ? data.referenceObjectTypeId
+              : null,
+          relationshipType:
+            data.type === 'OBJECT_REFERENCE' &&
+            data.referenceTargetKind === 'OBJECT_TYPE'
+              ? data.relationshipType
               : null,
           autoIdentifierRackFieldKey:
             data.type === 'AUTO_IDENTIFIER'

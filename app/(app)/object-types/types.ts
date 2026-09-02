@@ -8,6 +8,7 @@ import type {
 import {
   FIELD_DEFINITION_TYPES,
   REFERENCE_TARGET_KINDS,
+  RELATIONSHIP_TYPES,
   TABLE_COLUMN_TYPES,
 } from '@/lib/validations';
 
@@ -40,6 +41,36 @@ export const REFERENCE_TARGET_KIND_LABELS: Record<
   OBJECT_TYPE: 'Паспорт определённого типа',
 };
 
+export { RELATIONSHIP_TYPES };
+export type RelationshipTypeValue = (typeof RELATIONSHIP_TYPES)[number];
+
+// Russian labels for the ITIL/CMDB relationship taxonomy (1 September 2026,
+// CMDB phase 6) — used by the field-form-dialog relationship-type picker,
+// the incoming-references section on the passport card, and the
+// impact-analysis page. Short form for compact contexts (badges, grouped
+// list headers); verb form for the field-form-dialog's "как понимать эту
+// ссылку" helper text, which reads more naturally as a full phrase.
+export const RELATIONSHIP_TYPE_LABELS: Record<RelationshipTypeValue, string> = {
+  CONTAINMENT: 'Входит в состав',
+  DEPENDENCY: 'Зависит от',
+  ASSOCIATION: 'Связан с',
+  OWNERSHIP: 'Принадлежит / отвечает за',
+  IMPACT: 'Влияет на',
+};
+
+export const RELATIONSHIP_TYPE_HELP: Record<RelationshipTypeValue, string> = {
+  CONTAINMENT:
+    'Целевой паспорт — контейнер для этого объекта (например, шасси для встраиваемого модуля). Для размещения в стойке используйте ссылку на дерево локаций — там это уже подразумевается.',
+  DEPENDENCY:
+    'Этот объект не может работать без целевого — если целевой выйдет из строя, этот тоже пострадает. Единственный тип связи, который страница impact-анализа прослеживает по цепочке.',
+  ASSOCIATION:
+    'Свободная связь без предположения о зависимости — например, патч-корд к оборудованию на другом конце кабеля.',
+  OWNERSHIP:
+    'Организационная связь (ответственность/владение), не техническая зависимость.',
+  IMPACT:
+    'Прямое влияние, которое админ фиксирует вручную. Показывается на странице impact-анализа отдельной прямой связью, но не прослеживается дальше по цепочке, в отличие от «Зависит от».',
+};
+
 export type TableColumnDef = {
   key: string;
   label: string;
@@ -55,6 +86,13 @@ export type TableColumnDef = {
   // above (older stored JSON predates this feature).
   referenceTargetKind?: ReferenceTargetKindValue | null;
   referenceObjectTypeId?: string | null;
+  // Only meaningful when type is 'OBJECT_REFERENCE' and referenceTargetKind
+  // is 'OBJECT_TYPE' — see FieldDefinition.relationshipType/RelationshipType
+  // in schema.prisma. Optional for the same reason as validateAsIp above
+  // (older stored JSON predates this feature — treated as unset/ASSOCIATION
+  // by code that reads it, see objectReferenceColumns in
+  // passports/object-reference-utils.ts).
+  relationshipType?: RelationshipTypeValue | null;
 };
 
 export type ObjectTypeWithCounts = ObjectType & {

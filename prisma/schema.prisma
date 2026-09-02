@@ -178,6 +178,32 @@ enum ReferenceTargetKind {
   @@map("reference_target_kind")
 }
 
+// Which kind of relationship an OBJECT_REFERENCE field (or TABLE column of
+// that type) represents when it targets another passport (referenceTargetKind
+// = OBJECT_TYPE) — the ITIL/CMDB five-type taxonomy already discussed in
+// it-passports-design.md sections 8.0/6.1, made explicit and machine-usable
+// (1 September 2026, CMDB phase 6) so the passport card can show reciprocal
+// links grouped by meaning, and so the impact-analysis page
+// (getImpactAnalysis in passports/actions.ts) knows which links propagate a
+// failure (DEPENDENCY) and which don't (ASSOCIATION/OWNERSHIP/CONTAINMENT
+// between two passports — rare; the common containment case, into the
+// location tree, doesn't use this enum at all, see below).
+//
+// Deliberately NOT used for referenceTargetKind = LOCATION fields/columns —
+// a link into the location tree is always containment by construction (a
+// passport pointing at a Location node "lives in" that node), so there's
+// nothing for the admin to choose there; FieldDefinition.relationshipType
+// (and the tableColumns JSON equivalent) stays null for those.
+enum RelationshipType {
+  CONTAINMENT // «входит в состав» — passport-to-passport containment (e.g. a VM's host chassis, modeled as a passport rather than a rack); most containment in this app is OBJECT_REFERENCE -> LOCATION instead, which never sets this enum
+  DEPENDENCY // «зависит от» — the referencing passport can't function without the target; this is the only edge type getImpactAnalysis traverses transitively
+  ASSOCIATION // «связан с» — a looser link with no implied failure propagation (e.g. a patch cord to whatever equipment is on the other end); the default existing OBJECT_TYPE-target fields were backfilled to when this column was added
+  OWNERSHIP // «принадлежит / отвечает за» — an organizational link, not a technical one
+  IMPACT // «влияет на» — an explicit, admin-asserted direct impact edge; shown on the impact-analysis page as a direct link but, unlike DEPENDENCY, not followed transitively (see that page's doc comment for why)
+
+  @@map("relationship_type")
+}
+
 // ─────────────────────────────────────────────
 // Role
 // ─────────────────────────────────────────────
@@ -503,6 +529,11 @@ model FieldDefinition {
   // defined/edited in the same request). See FieldType.RACK_POSITION doc
   // comment.
   rackPositionRackFieldKey          String? @map("rack_position_rack_field_key")
+  // Only meaningful for OBJECT_REFERENCE fields with referenceTargetKind =
+  // OBJECT_TYPE (passport-to-passport links) — see RelationshipType above.
+  // Left null for referenceTargetKind = LOCATION fields (always containment,
+  // not stored) and for every other field type.
+  relationshipType RelationshipType? @map("relationship_type")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -582,6 +613,16 @@ model FieldObjectReferenceValue {
   fieldDefinitionId      String   @map("field_definition_id") @db.Uuid
   targetLocationId       String?  @map("target_location_id") @db.Uuid
   targetObjectInstanceId String?  @map("target_object_instance_id") @db.Uuid
+  // Denormalized copy of the owning FieldDefinition.relationshipType (1
+  // September 2026, CMDB phase 6), written by syncFieldObjectReferenceLinks
+  // at the same time as everything else in this row — same "delete then
+  // recreate" sync, so it can never drift from the field's current config.
+  // Kept here (not just joined at read time) so getImpactAnalysis can query
+  // "every DEPENDENCY edge in the system" in one pass over this table, no
+  // join to field_definitions needed. Always null when targetLocationId is
+  // set (containment via the location tree doesn't use this enum — see
+  // RelationshipType's doc comment).
+  relationshipType       RelationshipType? @map("relationship_type")
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -751,6 +792,11 @@ model TableCellObjectReferenceValue {
   columnKey              String   @map("column_key")
   targetLocationId       String?  @map("target_location_id") @db.Uuid
   targetObjectInstanceId String?  @map("target_object_instance_id") @db.Uuid
+  // Table-column counterpart of FieldObjectReferenceValue.relationshipType
+  // above (1 September 2026, CMDB phase 6) — copied from the owning
+  // column's own relationshipType (TableColumnDef.relationshipType, part of
+  // the field's tableColumns JSON) by syncTableCellObjectReferenceLinks.
+  relationshipType       RelationshipType? @map("relationship_type")
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz
 

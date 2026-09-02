@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { Prisma } from '@prisma/client';
+import { Prisma, type RelationshipType } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import {
@@ -354,6 +354,343 @@ export async function getPassportView(id: string) {
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
     canEdit: canSeeAll,
+  };
+}
+
+// ─────────────────────────────────────────────
+// Связи + impact-анализ (1 September 2026, CMDB phase 6 — see
+// it-passports-design.md section 8.10). Two read-only additions on top of
+// the existing OBJECT_REFERENCE mechanism (section 8.4), which only ever
+// showed the *outgoing* side of a link: a passport's own field values, never
+// who points back at it.
+// ─────────────────────────────────────────────
+
+export type IncomingReference = {
+  sourceId: string;
+  sourceName: string;
+  sourceTypeName: string;
+  fieldLabel: string;
+  relationshipType: RelationshipType | null;
+};
+
+// Every other passport currently pointing AT this one, through a regular
+// OBJECT_REFERENCE field or a TABLE column of that type — the reciprocal
+// half of what getPassportView already resolves (which only ever follows a
+// passport's own fields outward). Two queries, same "two mirror tables"
+// split used everywhere else for OBJECT_REFERENCE (see
+// object-reference-utils.ts) — both are simple indexed lookups on
+// target_object_instance_id, no traversal.
+export async function getIncomingReferences(
+  objectInstanceId: string,
+): Promise<IncomingReference[]> {
+  const currentUser = await requirePassportViewer();
+  if (!currentUser) return [];
+
+  const [fieldRefs, cellRefs] = await Promise.all([
+    prisma.fieldObjectReferenceValue.findMany({
+      where: { targetObjectInstanceId: objectInstanceId },
+      select: {
+        relationshipType: true,
+        fieldDefinition: { select: { label: true } },
+        objectInstance: {
+          select: {
+            id: true,
+            name: true,
+            objectType: { select: { name: true } },
+          },
+        },
+      },
+    }),
+    prisma.tableCellObjectReferenceValue.findMany({
+      where: { targetObjectInstanceId: objectInstanceId },
+      select: {
+        relationshipType: true,
+        tableFieldRow: {
+          select: {
+            fieldDefinition: { select: { label: true } },
+            objectInstance: {
+              select: {
+                id: true,
+                name: true,
+                objectType: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const result: IncomingReference[] = [
+    ...fieldRefs.map((r) => ({
+      sourceId: r.objectInstance.id,
+      sourceName: r.objectInstance.name,
+      sourceTypeName: r.objectInstance.objectType.name,
+      fieldLabel: r.fieldDefinition.label,
+      relationshipType: r.relationshipType,
+    })),
+    ...cellRefs.map((r) => ({
+      sourceId: r.tableFieldRow.objectInstance.id,
+      sourceName: r.tableFieldRow.objectInstance.name,
+      sourceTypeName: r.tableFieldRow.objectInstance.objectType.name,
+      fieldLabel: r.tableFieldRow.fieldDefinition.label,
+      relationshipType: r.relationshipType,
+    })),
+  ];
+
+  result.sort((a, b) => a.sourceName.localeCompare(b.sourceName, 'ru'));
+  return result;
+}
+
+export type ImpactNode = {
+  id: string;
+  name: string;
+  typeName: string;
+  depth: number;
+};
+
+export type DirectImpact = {
+  id: string;
+  name: string;
+  typeName: string;
+  direction: 'OUTGOING' | 'INCOMING';
+};
+
+export type ImpactAnalysis = {
+  root: { id: string; name: string; typeName: string };
+  // Passports that would be affected if this one stopped working — built by
+  // following DEPENDENCY edges *backward* (who points at this passport, or
+  // at something that eventually points at it, with relationshipType =
+  // DEPENDENCY) — i.e. "who depends on me, transitively".
+  downstream: ImpactNode[];
+  // Passports this one cannot function without — DEPENDENCY edges followed
+  // *forward*, transitively — i.e. "what I depend on".
+  upstream: ImpactNode[];
+  // Explicit, admin-asserted IMPACT links, both directions — shown as
+  // direct edges only, deliberately not traversed transitively (see
+  // RelationshipType.IMPACT's doc comment in schema.prisma for why: an
+  // admin asserting "A влияет на B" is a one-off judgment call, not
+  // necessarily true of whatever B itself affects).
+  directImpacts: DirectImpact[];
+  truncated: boolean;
+};
+
+// How many hops the DEPENDENCY traversal follows before giving up — a
+// circuit-breaker against a very long chain or (despite the visited-set
+// cycle guard below) a pathological amount of fan-out, not an expected
+// limit at this app's scale (~10 thousand pieces of equipment, per
+// it-passports-design.md section 8.0 — dependency chains between passports
+// are a much smaller subset of that).
+const IMPACT_MAX_DEPTH = 8;
+
+// Every DEPENDENCY-typed OBJECT_REFERENCE edge in the system, as a flat
+// (from, to) list — "from depends on to". Two queries (regular fields,
+// TABLE columns), same split as everywhere else. Cheap thanks to the
+// relationship_type index added alongside the denormalized column (see
+// schema.prisma) and to relationshipType being copied onto the mirror
+// tables at save time, so no join back to field_definitions is needed here.
+async function fetchDependencyEdges(): Promise<{ from: string; to: string }[]> {
+  const [fieldEdges, cellEdges] = await Promise.all([
+    prisma.fieldObjectReferenceValue.findMany({
+      where: { relationshipType: 'DEPENDENCY' },
+      select: { objectInstanceId: true, targetObjectInstanceId: true },
+    }),
+    prisma.tableCellObjectReferenceValue.findMany({
+      where: { relationshipType: 'DEPENDENCY' },
+      select: {
+        targetObjectInstanceId: true,
+        tableFieldRow: { select: { objectInstanceId: true } },
+      },
+    }),
+  ]);
+
+  const edges: { from: string; to: string }[] = [];
+  for (const e of fieldEdges) {
+    if (e.targetObjectInstanceId) {
+      edges.push({ from: e.objectInstanceId, to: e.targetObjectInstanceId });
+    }
+  }
+  for (const e of cellEdges) {
+    if (e.targetObjectInstanceId) {
+      edges.push({
+        from: e.tableFieldRow.objectInstanceId,
+        to: e.targetObjectInstanceId,
+      });
+    }
+  }
+  return edges;
+}
+
+// Breadth-first traversal of a plain adjacency map, depth-limited and
+// cycle-guarded by a visited set (a DEPENDENCY cycle shouldn't exist in a
+// well-modeled CMDB, but nothing at the database level forbids one, so this
+// has to tolerate it rather than looping forever).
+function bfs(
+  startId: string,
+  adjacency: Map<string, string[]>,
+): { result: { id: string; depth: number }[]; truncated: boolean } {
+  const visited = new Set<string>([startId]);
+  const result: { id: string; depth: number }[] = [];
+  let frontier = [startId];
+  let depth = 0;
+  let truncated = false;
+  while (frontier.length > 0) {
+    if (depth >= IMPACT_MAX_DEPTH) {
+      truncated = frontier.some((id) => (adjacency.get(id) ?? []).length > 0);
+      break;
+    }
+    depth++;
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const neighbor of adjacency.get(id) ?? []) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        result.push({ id: neighbor, depth });
+        next.push(neighbor);
+      }
+    }
+    frontier = next;
+  }
+  return { result, truncated };
+}
+
+// Powers the impact-analysis page (/passports/[id]/impact) — see
+// it-passports-design.md section 8.10 for the reasoning behind traversing
+// only DEPENDENCY edges transitively, and treating IMPACT edges as direct,
+// non-transitive assertions instead.
+export async function getImpactAnalysis(
+  objectInstanceId: string,
+): Promise<ImpactAnalysis | null> {
+  const currentUser = await requirePassportViewer();
+  if (!currentUser) return null;
+
+  const root = await prisma.objectInstance.findUnique({
+    where: { id: objectInstanceId },
+    select: { id: true, name: true, objectType: { select: { name: true } } },
+  });
+  if (!root) return null;
+
+  const edges = await fetchDependencyEdges();
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!outgoing.has(e.from)) outgoing.set(e.from, []);
+    outgoing.get(e.from)!.push(e.to);
+    if (!incoming.has(e.to)) incoming.set(e.to, []);
+    incoming.get(e.to)!.push(e.from);
+  }
+
+  const downstreamBfs = bfs(objectInstanceId, incoming);
+  const upstreamBfs = bfs(objectInstanceId, outgoing);
+
+  const [
+    outgoingImpactField,
+    incomingImpactField,
+    outgoingImpactCell,
+    incomingImpactCell,
+  ] = await Promise.all([
+    prisma.fieldObjectReferenceValue.findMany({
+      where: { relationshipType: 'IMPACT', objectInstanceId },
+      select: { targetObjectInstanceId: true },
+    }),
+    prisma.fieldObjectReferenceValue.findMany({
+      where: {
+        relationshipType: 'IMPACT',
+        targetObjectInstanceId: objectInstanceId,
+      },
+      select: { objectInstanceId: true },
+    }),
+    prisma.tableCellObjectReferenceValue.findMany({
+      where: {
+        relationshipType: 'IMPACT',
+        tableFieldRow: { objectInstanceId },
+      },
+      select: { targetObjectInstanceId: true },
+    }),
+    prisma.tableCellObjectReferenceValue.findMany({
+      where: {
+        relationshipType: 'IMPACT',
+        targetObjectInstanceId: objectInstanceId,
+      },
+      select: { tableFieldRow: { select: { objectInstanceId: true } } },
+    }),
+  ]);
+
+  const directImpactIds: { id: string; direction: 'OUTGOING' | 'INCOMING' }[] =
+    [
+      ...outgoingImpactField
+        .filter((r) => r.targetObjectInstanceId)
+        .map((r) => ({
+          id: r.targetObjectInstanceId as string,
+          direction: 'OUTGOING' as const,
+        })),
+      ...incomingImpactField.map((r) => ({
+        id: r.objectInstanceId,
+        direction: 'INCOMING' as const,
+      })),
+      ...outgoingImpactCell
+        .filter((r) => r.targetObjectInstanceId)
+        .map((r) => ({
+          id: r.targetObjectInstanceId as string,
+          direction: 'OUTGOING' as const,
+        })),
+      ...incomingImpactCell.map((r) => ({
+        id: r.tableFieldRow.objectInstanceId,
+        direction: 'INCOMING' as const,
+      })),
+    ].filter((d) => d.id !== objectInstanceId);
+
+  const allIds = new Set<string>([
+    ...downstreamBfs.result.map((r) => r.id),
+    ...upstreamBfs.result.map((r) => r.id),
+    ...directImpactIds.map((d) => d.id),
+  ]);
+
+  const instances =
+    allIds.size > 0
+      ? await prisma.objectInstance.findMany({
+          where: { id: { in: Array.from(allIds) } },
+          select: {
+            id: true,
+            name: true,
+            objectType: { select: { name: true } },
+          },
+        })
+      : [];
+  const byId = new Map(instances.map((i) => [i.id, i]));
+
+  function toNode(entry: { id: string; depth: number }): ImpactNode | null {
+    const i = byId.get(entry.id);
+    if (!i) return null;
+    return {
+      id: i.id,
+      name: i.name,
+      typeName: i.objectType.name,
+      depth: entry.depth,
+    };
+  }
+
+  return {
+    root: { id: root.id, name: root.name, typeName: root.objectType.name },
+    downstream: downstreamBfs.result
+      .map(toNode)
+      .filter((n): n is ImpactNode => n !== null),
+    upstream: upstreamBfs.result
+      .map(toNode)
+      .filter((n): n is ImpactNode => n !== null),
+    directImpacts: directImpactIds
+      .map((d) => {
+        const i = byId.get(d.id);
+        if (!i) return null;
+        return {
+          id: i.id,
+          name: i.name,
+          typeName: i.objectType.name,
+          direction: d.direction,
+        };
+      })
+      .filter((n): n is DirectImpact => n !== null),
+    truncated: downstreamBfs.truncated || upstreamBfs.truncated,
   };
 }
 
