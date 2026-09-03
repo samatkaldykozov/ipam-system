@@ -137,6 +137,55 @@ export async function validateObjectReferenceValues(
   return fieldErrors;
 }
 
+// Pre-check for FieldDefinition.objectReferenceUniqueTarget (3 September
+// 2026, CMDB — network ports/interfaces, see it-passports-design.md section
+// 8.17): for every field flagged this way with a non-empty value, makes
+// sure no OTHER passport already has this exact field pointing at the same
+// target. Run before the transaction, same "pre-check, no DB-level lock"
+// posture as validateObjectReferenceValues above — see the flag's doc
+// comment in schema.prisma for why a real unique index isn't used here.
+// currentObjectInstanceId is null on create (nothing to exclude) and the
+// passport's own id on update (so re-saving a passport with its own
+// already-generated link doesn't collide with itself).
+export async function validateUniqueObjectReferenceTargets(
+  refFields: FieldDefinition[],
+  values: Record<string, unknown>,
+  currentObjectInstanceId: string | null,
+): Promise<Record<string, string>> {
+  const uniqueFields = refFields.filter(
+    (f) =>
+      f.objectReferenceUniqueTarget && f.referenceTargetKind !== 'LOCATION',
+  );
+  if (uniqueFields.length === 0) return {};
+
+  const wanted = uniqueFields
+    .map((field) => {
+      const raw = values[field.key];
+      return typeof raw === 'string' && raw ? { field, targetId: raw } : null;
+    })
+    .filter((w): w is NonNullable<typeof w> => w !== null);
+  if (wanted.length === 0) return {};
+
+  const fieldErrors: Record<string, string> = {};
+  for (const { field, targetId } of wanted) {
+    const clash = await prisma.fieldObjectReferenceValue.findFirst({
+      where: {
+        fieldDefinitionId: field.id,
+        targetObjectInstanceId: targetId,
+        ...(currentObjectInstanceId
+          ? { objectInstanceId: { not: currentObjectInstanceId } }
+          : {}),
+      },
+      select: { objectInstance: { select: { name: true } } },
+    });
+    if (clash) {
+      fieldErrors[field.key] =
+        `«${field.label}»: эта КЕ уже указана в этом же поле у другого паспорта («${clash.objectInstance.name}») — выберите другую`;
+    }
+  }
+  return fieldErrors;
+}
+
 // ─────────────────────────────────────────────
 // TABLE-column counterpart — a TABLE field can have a column of type
 // OBJECT_REFERENCE (see TABLE_COLUMN_TYPES in lib/validations.ts). Cell

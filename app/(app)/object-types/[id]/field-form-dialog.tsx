@@ -99,6 +99,7 @@ type FormValues = {
   referenceTargetKind: ReferenceTargetKindValue | '';
   referenceObjectTypeId: string;
   relationshipType: RelationshipTypeValue | '';
+  objectReferenceUniqueTarget: boolean;
   autoIdentifierRackFieldKey: string;
   autoIdentifierEquipmentTypeCodeId: string;
   rackPositionRackFieldKey: string;
@@ -123,6 +124,7 @@ const EMPTY: FormValues = {
   referenceTargetKind: '',
   referenceObjectTypeId: '',
   relationshipType: '',
+  objectReferenceUniqueTarget: false,
   autoIdentifierRackFieldKey: '',
   autoIdentifierEquipmentTypeCodeId: '',
   rackPositionRackFieldKey: '',
@@ -271,6 +273,7 @@ export function FieldFormDialog({
         referenceObjectTypeId: field.referenceObjectTypeId ?? '',
         relationshipType:
           (field.relationshipType as RelationshipTypeValue | null) ?? '',
+        objectReferenceUniqueTarget: field.objectReferenceUniqueTarget ?? false,
         autoIdentifierRackFieldKey: field.autoIdentifierRackFieldKey ?? '',
         autoIdentifierEquipmentTypeCodeId:
           field.autoIdentifierEquipmentTypeCodeId ?? '',
@@ -443,6 +446,11 @@ export function FieldFormDialog({
         values.referenceTargetKind === 'OBJECT_TYPE'
           ? values.relationshipType || null
           : null,
+      objectReferenceUniqueTarget:
+        values.type === 'OBJECT_REFERENCE' &&
+        values.referenceTargetKind === 'OBJECT_TYPE'
+          ? values.objectReferenceUniqueTarget
+          : false,
       autoIdentifierRackFieldKey:
         values.type === 'AUTO_IDENTIFIER'
           ? values.autoIdentifierRackFieldKey || null
@@ -748,6 +756,25 @@ export function FieldFormDialog({
                       }
                     </p>
                   ) : null}
+                  <Controller
+                    control={control}
+                    name="objectReferenceUniqueTarget"
+                    render={({ field: f }) => (
+                      <label className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={f.value}
+                          onCheckedChange={(v) => f.onChange(!!v)}
+                        />
+                        Каждую выбранную КЕ можно указать здесь только один раз
+                      </label>
+                    )}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Строгая связь один-к-одному: если включено, одна и та же КЕ
+                    не может быть одновременно выбрана в этом поле у двух разных
+                    паспортов — например, порт не может быть подключён сразу к
+                    двум другим портам. Проверяется при сохранении паспорта.
+                  </p>
                 </div>
               ) : null}
             </div>

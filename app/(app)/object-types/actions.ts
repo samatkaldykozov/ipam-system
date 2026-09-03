@@ -337,6 +337,10 @@ type FieldDefinitionInput = {
   // is 'OBJECT_TYPE' — see FieldDefinition.relationshipType/RelationshipType
   // in schema.prisma.
   relationshipType?: string | null;
+  // Only meaningful when type is 'OBJECT_REFERENCE' and referenceTargetKind
+  // is 'OBJECT_TYPE' — see FieldDefinition.objectReferenceUniqueTarget in
+  // schema.prisma. Optional, defaults false.
+  objectReferenceUniqueTarget?: boolean;
   // Only meaningful when type is 'AUTO_IDENTIFIER' — see
   // FieldDefinition.autoIdentifierRackFieldKey/
   // autoIdentifierEquipmentTypeCodeId in schema.prisma.
@@ -789,6 +793,11 @@ export async function createFieldDefinition(
             data.referenceTargetKind === 'OBJECT_TYPE'
               ? data.relationshipType
               : null,
+          objectReferenceUniqueTarget:
+            data.type === 'OBJECT_REFERENCE' &&
+            data.referenceTargetKind === 'OBJECT_TYPE'
+              ? (data.objectReferenceUniqueTarget ?? false)
+              : false,
           autoIdentifierRackFieldKey:
             data.type === 'AUTO_IDENTIFIER'
               ? data.autoIdentifierRackFieldKey
@@ -1020,6 +1029,11 @@ export async function updateFieldDefinition(
             data.referenceTargetKind === 'OBJECT_TYPE'
               ? data.relationshipType
               : null,
+          objectReferenceUniqueTarget:
+            data.type === 'OBJECT_REFERENCE' &&
+            data.referenceTargetKind === 'OBJECT_TYPE'
+              ? (data.objectReferenceUniqueTarget ?? false)
+              : false,
           autoIdentifierRackFieldKey:
             data.type === 'AUTO_IDENTIFIER'
               ? data.autoIdentifierRackFieldKey

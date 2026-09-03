@@ -418,6 +418,11 @@ export const fieldDefinitionSchema = z
     // RelationshipType in schema.prisma. Required in that case (the refine
     // below), same treatment as referenceTargetKind itself.
     relationshipType: z.enum(RELATIONSHIP_TYPES).optional().nullable(),
+    // Only meaningful when type is 'OBJECT_REFERENCE' and referenceTargetKind
+    // is 'OBJECT_TYPE' — see FieldDefinition.objectReferenceUniqueTarget in
+    // schema.prisma. Optional, defaults false (no behavior change) — never
+    // required, unlike relationshipType.
+    objectReferenceUniqueTarget: z.boolean().default(false),
     // Only meaningful when type is 'AUTO_IDENTIFIER' — see
     // FieldDefinition.autoIdentifierRackFieldKey/
     // autoIdentifierEquipmentTypeCodeId in schema.prisma.

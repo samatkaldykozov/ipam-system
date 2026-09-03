@@ -597,6 +597,25 @@ model FieldDefinition {
   // Left null for referenceTargetKind = LOCATION fields (always containment,
   // not stored) and for every other field type.
   relationshipType RelationshipType? @map("relationship_type")
+  // Only meaningful for OBJECT_REFERENCE fields with referenceTargetKind =
+  // OBJECT_TYPE (3 September 2026, CMDB — network ports/interfaces, see
+  // it-passports-design.md section 8.17). When true, a given target
+  // ObjectInstance may be pointed at by at most one FieldObjectReferenceValue
+  // row for *this* FieldDefinition at a time — enforced by
+  // validateUniqueObjectReferenceTargets (object-reference-utils.ts) as a
+  // pre-check before the transaction, the same "pre-check, no DB-level
+  // lock" trade-off already used for AUTO_IDENTIFIER/VM_IDENTIFIER sequence
+  // numbers (see FieldAutoIdentifierValue's doc comment) — a real unique
+  // index isn't used here because it would need to apply only to rows whose
+  // owning field has this flag set, which a plain (non-partial, non-
+  // trigger-based) Postgres index can't express, and every other
+  // OBJECT_REFERENCE field (e.g. a business service's components, a VM's
+  // cluster) legitimately allows many referencing passports to point at the
+  // same target. First and only user: a "Port/Interface" ObjectType's
+  // "Connected port" field, modeling that a physical port can be patched
+  // into at most one other port at a time. Default false for every other
+  // OBJECT_REFERENCE field — no behavior change for them.
+  objectReferenceUniqueTarget Boolean @default(false) @map("object_reference_unique_target")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

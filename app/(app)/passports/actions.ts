@@ -41,6 +41,7 @@ import {
   syncTableCellObjectReferenceLinks,
   validateObjectReferenceValues,
   validateTableObjectReferenceValues,
+  validateUniqueObjectReferenceTargets,
   type ObjectReferenceColumn,
   type ObjectReferenceLabel,
 } from '@/app/(app)/passports/object-reference-utils';
@@ -1003,13 +1004,23 @@ export async function createPassport(
   const ipRefFields = ipReferenceFields(objectType.fields);
   const objectRefFields = objectReferenceFields(objectType.fields);
   const tableFields = objectType.fields.filter((f) => f.type === 'TABLE');
-  const [ipRefErrors, tableIpRefErrors, objectRefErrors, tableObjectRefErrors] =
-    await Promise.all([
-      validateIpReferenceValues(ipRefFields, validated.data.values),
-      validateTableIpReferenceValues(tableFields, validated.data.tableRows),
-      validateObjectReferenceValues(objectRefFields, validated.data.values),
-      validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
-    ]);
+  const [
+    ipRefErrors,
+    tableIpRefErrors,
+    objectRefErrors,
+    tableObjectRefErrors,
+    uniqueTargetErrors,
+  ] = await Promise.all([
+    validateIpReferenceValues(ipRefFields, validated.data.values),
+    validateTableIpReferenceValues(tableFields, validated.data.tableRows),
+    validateObjectReferenceValues(objectRefFields, validated.data.values),
+    validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
+    validateUniqueObjectReferenceTargets(
+      objectRefFields,
+      validated.data.values,
+      null,
+    ),
+  ]);
   // No existing passport yet, so no AUTO_IDENTIFIER/VM_IDENTIFIER value can
   // already be generated — every such field on this type needs its source
   // fields filled in.
@@ -1028,6 +1039,7 @@ export async function createPassport(
     ...tableIpRefErrors,
     ...objectRefErrors,
     ...tableObjectRefErrors,
+    ...uniqueTargetErrors,
     ...autoIdErrors,
     ...vmIdErrors,
   };
@@ -1179,13 +1191,23 @@ export async function updatePassport(
     (f) => f.type === 'TABLE',
   );
   const existingValues = existing.values as unknown as Record<string, unknown>;
-  const [ipRefErrors, tableIpRefErrors, objectRefErrors, tableObjectRefErrors] =
-    await Promise.all([
-      validateIpReferenceValues(ipRefFields, validated.data.values),
-      validateTableIpReferenceValues(tableFields, validated.data.tableRows),
-      validateObjectReferenceValues(objectRefFields, validated.data.values),
-      validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
-    ]);
+  const [
+    ipRefErrors,
+    tableIpRefErrors,
+    objectRefErrors,
+    tableObjectRefErrors,
+    uniqueTargetErrors,
+  ] = await Promise.all([
+    validateIpReferenceValues(ipRefFields, validated.data.values),
+    validateTableIpReferenceValues(tableFields, validated.data.tableRows),
+    validateObjectReferenceValues(objectRefFields, validated.data.values),
+    validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
+    validateUniqueObjectReferenceTargets(
+      objectRefFields,
+      validated.data.values,
+      id,
+    ),
+  ]);
   // Fields that already have a generated value (existingValues) are
   // skipped — editing the rack/cluster afterward doesn't retroactively
   // invalidate an already-assigned identifier, see
@@ -1205,6 +1227,7 @@ export async function updatePassport(
     ...tableIpRefErrors,
     ...objectRefErrors,
     ...tableObjectRefErrors,
+    ...uniqueTargetErrors,
     ...autoIdErrors,
     ...vmIdErrors,
   };
