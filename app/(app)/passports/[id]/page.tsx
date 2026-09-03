@@ -5,6 +5,7 @@ import { getCurrentUser, hasPassportAccess } from '@/lib/auth';
 import {
   getPassportView,
   getIncomingReferences,
+  getPassportHistory,
 } from '@/app/(app)/passports/actions';
 import { PassportViewCard } from '@/app/(app)/passports/[id]/passport-view';
 
@@ -37,11 +38,19 @@ export default async function PassportDetailPage({
   // read concern (not this passport's own fields/values) with its own
   // shape — see it-passports-design.md section 8.10.
   const incomingReferences = await getIncomingReferences(id);
+  // Structured change history (2 September 2026, CMDB phase 7) — same
+  // "fetch alongside, separate concern" reasoning as incomingReferences
+  // above, see it-passports-design.md section 8.11.
+  const history = await getPassportHistory(id);
 
   return (
     <div className="space-y-6">
       <PageHeader title={data.name} />
-      <PassportViewCard data={data} incomingReferences={incomingReferences} />
+      <PassportViewCard
+        data={data}
+        incomingReferences={incomingReferences}
+        history={history}
+      />
     </div>
   );
 }

@@ -54,6 +54,31 @@ export function describeChange(
     if (log.action === 'UPDATE') return `Set ${email}'s role to ${role}`;
   }
 
+  // ObjectInstance = a CMDB passport (2 September 2026, CMDB phase 7 — see
+  // it-passports-design.md section 8.11). "CI" (Configuration Item) here
+  // rather than the Russian "КЕ" used elsewhere in the app, to match this
+  // function's own established English-language convention (see the other
+  // branches above) — the passport's own name and field labels inside the
+  // sentence are still whatever the admin/user actually typed.
+  if (log.entity === 'ObjectInstance') {
+    const name = str('name');
+    if (log.action === 'CREATE') return `Created CI ${name}`;
+    if (log.action === 'DELETE') return `Deleted CI ${name}`;
+    if (log.action === 'UPDATE') {
+      const meta = (log.metadata ?? {}) as Record<string, unknown>;
+      const changes = Array.isArray(meta.changes)
+        ? (meta.changes as { label: string; from: string; to: string }[])
+        : [];
+      if (changes.length === 0) return `Updated CI ${name}`;
+      const shown = changes.slice(0, 2);
+      const summary = shown
+        .map((c) => `${c.label}: ${c.from} → ${c.to}`)
+        .join('; ');
+      const rest = changes.length - shown.length;
+      return `Updated CI ${name}: ${summary}${rest > 0 ? ` (+${rest} more)` : ''}`;
+    }
+  }
+
   return `${log.action.charAt(0)}${log.action.slice(1).toLowerCase()}d ${log.entity.toLowerCase()}`;
 }
 

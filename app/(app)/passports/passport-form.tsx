@@ -37,10 +37,13 @@ import {
   searchObjectInstancesForReference,
   getObjectReferenceLabels,
 } from '@/app/(app)/passports/actions';
-import type {
-  ObjectTypeForFill,
-  PassportUserOption,
-  PassportWithFields,
+import {
+  OBJECT_INSTANCE_STATUSES,
+  OBJECT_INSTANCE_STATUS_LABELS,
+  type ObjectInstanceStatusValue,
+  type ObjectTypeForFill,
+  type PassportUserOption,
+  type PassportWithFields,
 } from '@/app/(app)/passports/types';
 import type { IpAddressSuggestion } from '@/app/(app)/passports/actions';
 import type { IpAddressRefLabel } from '@/app/(app)/passports/ip-reference-utils';
@@ -81,7 +84,13 @@ function objectReferenceSearcher(
     return found.map((i) => ({
       id: i.id,
       title: i.name,
-      subtitle: i.objectTypeName,
+      // Flags a decommissioned target (2 September 2026, CMDB phase 7) —
+      // linking to one still works, this just avoids picking it by
+      // accident when a name collides with a currently-active КЕ.
+      subtitle:
+        i.status === 'DECOMMISSIONED'
+          ? `${i.objectTypeName} · выведен из эксплуатации`
+          : i.objectTypeName,
     }));
   };
 }
@@ -117,6 +126,9 @@ export function PassportForm({
   );
 
   const [name, setName] = React.useState(passport?.name ?? '');
+  const [status, setStatus] = React.useState<ObjectInstanceStatusValue>(
+    passport?.status ?? 'IN_USE',
+  );
 
   const [values, setValues] = React.useState<Record<string, string | boolean>>(
     () => {
@@ -382,6 +394,7 @@ export function PassportForm({
     if (isEdit) {
       result = await updatePassport(passport!.id, {
         name,
+        status,
         values,
         tableRows: payloadTableRows,
         responsibleUserIds,
@@ -390,6 +403,7 @@ export function PassportForm({
       const created = await createPassport({
         objectTypeId: objectType.id,
         name,
+        status,
         values,
         tableRows: payloadTableRows,
         responsibleUserIds,
@@ -423,15 +437,35 @@ export function PassportForm({
         <CardHeader>
           <CardTitle className="text-base">Название КЕ</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1.5">
-          <Input
-            placeholder={`${objectType.name} — …`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          {fieldErrors.name ? (
-            <p className="text-sm text-destructive">{fieldErrors.name}</p>
-          ) : null}
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Input
+              placeholder={`${objectType.name} — …`}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            {fieldErrors.name ? (
+              <p className="text-sm text-destructive">{fieldErrors.name}</p>
+            ) : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Статус</Label>
+            <Select
+              value={status}
+              onValueChange={(v) => setStatus(v as ObjectInstanceStatusValue)}
+            >
+              <SelectTrigger className="w-full sm:w-[280px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {OBJECT_INSTANCE_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {OBJECT_INSTANCE_STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 

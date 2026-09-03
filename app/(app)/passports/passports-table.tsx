@@ -48,7 +48,13 @@ import {
   exportPassportsCsv,
   importPassportsCsv,
 } from '@/app/(app)/passports/csv-actions';
-import type { PassportListItem } from '@/app/(app)/passports/types';
+import {
+  OBJECT_INSTANCE_STATUSES,
+  OBJECT_INSTANCE_STATUS_LABELS,
+  OBJECT_INSTANCE_STATUS_BADGE_VARIANT,
+  type ObjectInstanceStatusValue,
+  type PassportListItem,
+} from '@/app/(app)/passports/types';
 
 interface PassportsTableProps {
   items: PassportListItem[];
@@ -58,6 +64,9 @@ interface PassportsTableProps {
 export function PassportsTable({ items, canEdit }: PassportsTableProps) {
   const [search, setSearch] = React.useState('');
   const [typeFilter, setTypeFilter] = React.useState('ALL');
+  const [statusFilter, setStatusFilter] = React.useState<
+    ObjectInstanceStatusValue | 'ALL'
+  >('ALL');
   const [deleteTarget, setDeleteTarget] =
     React.useState<PassportListItem | null>(null);
   const [importOpen, setImportOpen] = React.useState(false);
@@ -81,10 +90,11 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
     return items.filter((item) => {
       if (typeFilter !== 'ALL' && item.objectType.id !== typeFilter)
         return false;
+      if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
       if (!q) return true;
       return item.name.toLowerCase().includes(q);
     });
-  }, [items, search, typeFilter]);
+  }, [items, search, typeFilter, statusFilter]);
 
   const selectedType =
     typeFilter !== 'ALL' ? types.find((t) => t.id === typeFilter) : undefined;
@@ -147,6 +157,24 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
               </SelectContent>
             </Select>
           ) : null}
+          <Select
+            value={statusFilter}
+            onValueChange={(v) =>
+              setStatusFilter(v as ObjectInstanceStatusValue | 'ALL')
+            }
+          >
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Все статусы</SelectItem>
+              {OBJECT_INSTANCE_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {OBJECT_INSTANCE_STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-center gap-2">
           {canEdit && typeFilter !== 'ALL' ? (
@@ -176,6 +204,7 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
               <TableRow>
                 <TableHead>Название</TableHead>
                 <TableHead>Тип</TableHead>
+                <TableHead>Статус</TableHead>
                 <TableHead>Ответственные</TableHead>
                 <TableHead>Обновлён</TableHead>
                 {canEdit ? (
@@ -198,6 +227,21 @@ export function PassportsTable({ items, canEdit }: PassportsTableProps) {
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{item.objectType.name}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        OBJECT_INSTANCE_STATUS_BADGE_VARIANT[
+                          item.status as ObjectInstanceStatusValue
+                        ]
+                      }
+                    >
+                      {
+                        OBJECT_INSTANCE_STATUS_LABELS[
+                          item.status as ObjectInstanceStatusValue
+                        ]
+                      }
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {item.responsible.length > 0

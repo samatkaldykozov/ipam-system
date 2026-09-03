@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { Pencil, Share2 } from 'lucide-react';
+import { History, Pencil, Share2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { PassportView } from '@/app/(app)/passports/types';
+import {
+  OBJECT_INSTANCE_STATUS_LABELS,
+  OBJECT_INSTANCE_STATUS_BADGE_VARIANT,
+  type ObjectInstanceStatusValue,
+  type PassportHistoryEntry,
+  type PassportView,
+} from '@/app/(app)/passports/types';
 import type { IncomingReference } from '@/app/(app)/passports/actions';
 import type { TableColumnDef } from '@/app/(app)/object-types/types';
 import { RELATIONSHIP_TYPE_LABELS } from '@/app/(app)/object-types/types';
@@ -88,11 +94,13 @@ function formatFieldValue(type: string, value: unknown): ReactNode {
 interface PassportViewCardProps {
   data: PassportView;
   incomingReferences?: IncomingReference[];
+  history?: PassportHistoryEntry[];
 }
 
 export function PassportViewCard({
   data,
   incomingReferences = [],
+  history = [],
 }: PassportViewCardProps) {
   const groups = groupBySection(data.fields);
 
@@ -102,6 +110,22 @@ export function PassportViewCard({
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">
             Тип: <span className="text-foreground">{data.objectType.name}</span>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Статус:{' '}
+            <Badge
+              variant={
+                OBJECT_INSTANCE_STATUS_BADGE_VARIANT[
+                  data.status as ObjectInstanceStatusValue
+                ]
+              }
+            >
+              {
+                OBJECT_INSTANCE_STATUS_LABELS[
+                  data.status as ObjectInstanceStatusValue
+                ]
+              }
+            </Badge>
           </p>
           <p className="text-sm text-muted-foreground">
             Ответственные:{' '}
@@ -174,7 +198,56 @@ export function PassportViewCard({
       ) : null}
 
       <IncomingReferencesCard references={incomingReferences} />
+      <PassportHistoryCard history={history} />
     </div>
+  );
+}
+
+// Structured change history (2 September 2026, CMDB phase 7) — see
+// getPassportHistory() in actions.ts and change-log-utils.ts. Newest first;
+// each entry shows who changed what, not just that a change happened.
+function PassportHistoryCard({ history }: { history: PassportHistoryEntry[] }) {
+  if (history.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <History className="h-4 w-4 text-muted-foreground" />
+          История изменений
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {history.map((entry) => (
+          <div
+            key={entry.id}
+            className="space-y-1.5 border-b pb-3 last:border-b-0 last:pb-0"
+          >
+            <p className="text-sm">
+              <span className="font-medium text-foreground">
+                {entry.actorEmail ?? 'Неизвестный пользователь'}
+              </span>{' '}
+              <span className="text-muted-foreground">
+                {entry.action === 'CREATE' ? 'создал(а) КЕ' : 'изменил(а) КЕ'} —{' '}
+                {format(entry.createdAt, 'dd.MM.yyyy HH:mm')}
+              </span>
+            </p>
+            {entry.changes.length > 0 ? (
+              <ul className="space-y-0.5 pl-1 text-sm">
+                {entry.changes.map((c, i) => (
+                  <li key={`${entry.id}-${c.key}-${i}`}>
+                    <span className="text-muted-foreground">{c.label}:</span>{' '}
+                    <span>{c.from}</span>
+                    <span className="text-muted-foreground"> → </span>
+                    <span>{c.to}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

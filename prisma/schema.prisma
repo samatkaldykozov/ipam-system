@@ -204,6 +204,22 @@ enum RelationshipType {
   @@map("relationship_type")
 }
 
+// CI lifecycle status (2 September 2026, CMDB phase 7 — see
+// it-passports-design.md section 8.11). Deliberately a small, fixed set
+// matching the three states the user actually named when this phase was
+// scoped, not a configurable-per-type status workflow — that would be a
+// much bigger feature (custom statuses, allowed transitions per type) that
+// nothing so far has asked for. No "PLANNED"/"in stock" state: passports in
+// this app are created once the object already physically exists (see
+// section 8.0), so a not-yet-deployed CI simply isn't a passport yet.
+enum ObjectInstanceStatus {
+  IN_USE // «в эксплуатации» — default for both new and (via migration backfill) every pre-existing passport
+  UNDER_MAINTENANCE // «на обслуживании»
+  DECOMMISSIONED // «выведен из эксплуатации» — stays in the CMDB (never hidden or deleted) so history and existing references remain intact; just visually and filterably distinct
+
+  @@map("object_instance_status")
+}
+
 // ─────────────────────────────────────────────
 // Role
 // ─────────────────────────────────────────────
@@ -665,13 +681,14 @@ model FieldVisibility {
 // ─────────────────────────────────────────────
 
 model ObjectInstance {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  objectTypeId String   @map("object_type_id") @db.Uuid
+  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectTypeId String               @map("object_type_id") @db.Uuid
   name         String
-  values       Json     @default("{}")
-  createdById  String?  @map("created_by_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  status       ObjectInstanceStatus @default(IN_USE)
+  values       Json                 @default("{}")
+  createdById  String?              @map("created_by_id") @db.Uuid
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz
 
   objectType   ObjectType                  @relation(fields: [objectTypeId], references: [id], onDelete: Restrict)
   responsible  ObjectInstanceResponsible[]
@@ -696,6 +713,7 @@ model ObjectInstance {
   autoIdentifierLinks    FieldAutoIdentifierValue[]
 
   @@index([objectTypeId])
+  @@index([status])
   @@map("object_instances")
 }
 

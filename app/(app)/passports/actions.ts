@@ -1,7 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { Prisma, type RelationshipType } from '@prisma/client';
+import {
+  Prisma,
+  type RelationshipType,
+  type ObjectInstanceStatus,
+} from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import {
@@ -10,6 +14,15 @@ import {
   canEditPassports,
 } from '@/lib/auth';
 import { validatePassportValues } from '@/app/(app)/passports/validate-values';
+import {
+  buildFieldChanges,
+  buildTableFieldChanges,
+  type FieldChange,
+} from '@/app/(app)/passports/change-log-utils';
+import {
+  OBJECT_INSTANCE_STATUS_LABELS,
+  type PassportHistoryEntry,
+} from '@/app/(app)/passports/types';
 import {
   ipReferenceColumnKeys,
   ipReferenceFields,
@@ -104,12 +117,14 @@ export async function getObjectTypesForPicker() {
 export async function getPassports(params: {
   objectTypeId?: string;
   search?: string;
+  status?: ObjectInstanceStatus;
 }) {
   const currentUser = await requirePassportViewer();
   if (!currentUser) return { items: [] };
 
   const where: Prisma.ObjectInstanceWhereInput = {};
   if (params.objectTypeId) where.objectTypeId = params.objectTypeId;
+  if (params.status) where.status = params.status;
   if (params.search?.trim()) {
     where.name = { contains: params.search.trim(), mode: 'insensitive' };
   }
@@ -342,6 +357,7 @@ export async function getPassportView(id: string) {
   return {
     id: instance.id,
     name: instance.name,
+    status: instance.status,
     objectType: {
       id: instance.objectType.id,
       name: instance.objectType.name,
@@ -355,6 +371,48 @@ export async function getPassportView(id: string) {
     updatedAt: instance.updatedAt,
     canEdit: canSeeAll,
   };
+}
+
+// ─────────────────────────────────────────────
+// Жизненный цикл КЕ + аудит-дифф (2 September 2026, CMDB phase 7 — see
+// it-passports-design.md section 8.11). Read-only history of a single
+// passport's own CREATE/UPDATE audit-log entries, with the structured
+// field-level diff each one already carries (see change-log-utils.ts and
+// createPassport/updatePassport above) — the counterpart to the generic
+// /audit-log page, scoped to one КЕ and rendered with full diff detail
+// rather than a one-line summary. Same access level as the card itself
+// (requirePassportViewer) — this is just another view of the same data.
+// ─────────────────────────────────────────────
+
+export async function getPassportHistory(
+  objectInstanceId: string,
+): Promise<PassportHistoryEntry[]> {
+  const currentUser = await requirePassportViewer();
+  if (!currentUser) return [];
+
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      entity: 'ObjectInstance',
+      entityId: objectInstanceId,
+      action: { in: ['CREATE', 'UPDATE'] },
+    },
+    include: { user: { select: { email: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return logs.map((log) => {
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    const changes = Array.isArray(meta.changes)
+      ? (meta.changes as FieldChange[])
+      : [];
+    return {
+      id: log.id,
+      action: log.action as 'CREATE' | 'UPDATE',
+      actorEmail: log.user?.email ?? null,
+      createdAt: log.createdAt,
+      changes,
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -824,6 +882,11 @@ export interface ObjectInstanceReferenceSuggestion {
   id: string;
   name: string;
   objectTypeName: string;
+  // Surfaced so the picker can flag a decommissioned target (2 September
+  // 2026, CMDB phase 7) — linking to one isn't blocked (a historical
+  // dependency chain may legitimately reference retired equipment), just
+  // labeled so it's not picked by accident.
+  status: ObjectInstanceStatus;
 }
 
 // Scoped to one ObjectType when the field's configured referenceObjectTypeId
@@ -855,6 +918,7 @@ export async function searchObjectInstancesForReference(
     id: i.id,
     name: i.name,
     objectTypeName: i.objectType.name,
+    status: i.status,
   }));
 }
 
@@ -892,6 +956,7 @@ export async function getObjectReferenceLabels(
 type PassportInput = {
   objectTypeId: string;
   name: string;
+  status: ObjectInstanceStatus;
   values: Record<string, unknown>;
   tableRows: Record<string, { cells: Record<string, unknown> }[]>;
   responsibleUserIds: string[];
@@ -967,6 +1032,7 @@ export async function createPassport(
         data: {
           objectTypeId: objectType.id,
           name,
+          status: input.status,
           values: validated.data.values as Prisma.InputJsonValue,
           createdById: currentUser.id,
           responsible: {
@@ -1030,6 +1096,7 @@ export async function createPassport(
     await writeAudit('CREATE', instance.id, currentUser.id, {
       name: instance.name,
       objectTypeId: objectType.id,
+      status: instance.status,
     });
     revalidatePath('/passports');
     return {
@@ -1063,7 +1130,15 @@ export async function updatePassport(
 
   const existing = await prisma.objectInstance.findUnique({
     where: { id },
-    include: { objectType: { include: { fields: true } } },
+    include: {
+      objectType: { include: { fields: true } },
+      responsible: {
+        include: {
+          user: { select: { id: true, email: true, fullName: true } },
+        },
+      },
+      tableRows: { select: { fieldDefinitionId: true, cells: true } },
+    },
   });
   if (!existing) {
     return { ok: false, message: 'КЕ не найдена' };
@@ -1113,12 +1188,84 @@ export async function updatePassport(
   const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
   const autoIdFields = autoIdentifierFields(existing.objectType.fields);
 
+  // Structured change history (2 September 2026, CMDB phase 7) — computed
+  // from the *old* state fetched above, before anything is written. Has to
+  // happen before the transaction below, since that overwrites the very
+  // values being diffed against.
+  const oldResponsibleIds = new Set(existing.responsible.map((r) => r.userId));
+  const newResponsibleIds = new Set(input.responsibleUserIds);
+  const responsibleUsers = await prisma.user.findMany({
+    where: {
+      id: {
+        in: Array.from(
+          new Set([
+            ...Array.from(oldResponsibleIds),
+            ...Array.from(newResponsibleIds),
+          ]),
+        ),
+      },
+    },
+    select: { id: true, email: true, fullName: true },
+  });
+  const responsibleLabelById = new Map<string, string>(
+    responsibleUsers.map(
+      (u) => [u.id, (u.fullName || u.email) as string] as const,
+    ),
+  );
+  const oldResponsible = existing.responsible.map((r) => ({
+    id: r.userId,
+    label:
+      responsibleLabelById.get(r.userId) ??
+      ((r.user.fullName || r.user.email) as string),
+  }));
+  const newResponsible = input.responsibleUserIds.map((userId) => ({
+    id: userId,
+    label: responsibleLabelById.get(userId) ?? userId,
+  }));
+
+  const oldTableRowsByFieldId = new Map<string, unknown[]>();
+  for (const row of existing.tableRows) {
+    const arr = oldTableRowsByFieldId.get(row.fieldDefinitionId) ?? [];
+    arr.push(row.cells);
+    oldTableRowsByFieldId.set(row.fieldDefinitionId, arr);
+  }
+  const newTableRowsByFieldId = new Map<string, unknown[]>();
+  for (const [key, rows] of Object.entries(validated.data.tableRows)) {
+    const field = tableFieldByKey.get(key);
+    if (!field) continue;
+    newTableRowsByFieldId.set(
+      field.id,
+      rows.map((r) => r.cells),
+    );
+  }
+
+  const changes: FieldChange[] = [
+    ...(await buildFieldChanges({
+      fields: existing.objectType.fields,
+      oldName: existing.name,
+      newName: name,
+      oldStatus: existing.status,
+      newStatus: input.status,
+      statusLabels: OBJECT_INSTANCE_STATUS_LABELS,
+      oldResponsible,
+      newResponsible,
+      oldValues: existingValues,
+      newValues: validated.data.values,
+    })),
+    ...buildTableFieldChanges(
+      tableFields,
+      oldTableRowsByFieldId,
+      newTableRowsByFieldId,
+    ),
+  ];
+
   try {
     await prisma.$transaction(async (tx) => {
       await tx.objectInstance.update({
         where: { id },
         data: {
           name,
+          status: input.status,
           values: validated.data.values as Prisma.InputJsonValue,
         },
       });
@@ -1185,7 +1332,7 @@ export async function updatePassport(
       }
     });
 
-    await writeAudit('UPDATE', id, currentUser.id, { name });
+    await writeAudit('UPDATE', id, currentUser.id, { name, changes });
     revalidatePath('/passports');
     revalidatePath(`/passports/${id}`);
     return { ok: true, message: 'КЕ обновлена' };
@@ -1247,7 +1394,10 @@ export async function deletePassport(id: string): Promise<ActionResult> {
     // Cascades to ObjectInstanceResponsible and TableFieldRow rows via the
     // schema's onDelete: Cascade.
     await prisma.objectInstance.delete({ where: { id } });
-    await writeAudit('DELETE', id, currentUser.id, { name: existing.name });
+    await writeAudit('DELETE', id, currentUser.id, {
+      name: existing.name,
+      status: existing.status,
+    });
     revalidatePath('/passports');
     return { ok: true, message: 'КЕ удалена' };
   } catch {
