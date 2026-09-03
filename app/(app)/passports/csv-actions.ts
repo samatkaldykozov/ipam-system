@@ -41,7 +41,8 @@ import {
 // show it, but import could never set it, and a column that silently does
 // nothing on import is worse than no column). A passport with such a field
 // still gets it generated as soon as the rack field is filled in through
-// the regular form.
+// the regular form. VM_IDENTIFIER fields (3 September 2026, CMDB —
+// clusters/VMs) are excluded for the same reason.
 
 const MAX_IMPORT_ROWS = 2000;
 
@@ -51,7 +52,8 @@ function csvFields(fields: FieldDefinition[]) {
       (f) =>
         f.type !== 'TABLE' &&
         f.type !== 'OBJECT_REFERENCE' &&
-        f.type !== 'AUTO_IDENTIFIER',
+        f.type !== 'AUTO_IDENTIFIER' &&
+        f.type !== 'VM_IDENTIFIER',
     )
     .sort((a, b) => a.order - b.order);
 }

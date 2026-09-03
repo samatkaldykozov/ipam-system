@@ -162,6 +162,24 @@ enum FieldType {
   // top-level fields only, not TABLE columns, same reasoning as
   // AUTO_IDENTIFIER above.
   RACK_POSITION
+  // Computed VM identifier (3 September 2026, CMDB — clusters/VMs, see
+  // it-passports-design.md section 8.15). Same "never entered by hand,
+  // assembled server-side once" idea as AUTO_IDENTIFIER, but a different
+  // formula per the Kazakhtelecom standard's VM-naming rule: "код кластера
+  // + информационная система + роль + номер" (e.g. "prx1-biling-app-2"),
+  // not "стойка + код + номер" — a VM doesn't live in a rack, it lives on a
+  // cluster, and its identifier needs the information-system and role too.
+  // Four sibling-field-key pointers configure it (see
+  // FieldDefinition.vmIdentifierClusterFieldKey and the three next to it):
+  // which field on this same ObjectType supplies the cluster (an
+  // OBJECT_REFERENCE to a Cluster-type passport), which field ON THAT
+  // CLUSTER TYPE holds its own short code, which field on this ObjectType
+  // holds the manually-typed information-system code, and which field
+  // holds the role. FieldVmIdentifierValue is the relational mirror and
+  // source of truth for uniqueness, exactly the way FieldAutoIdentifierValue
+  // backs AUTO_IDENTIFIER. Deliberately scoped to top-level fields only,
+  // not TABLE columns, same reasoning as AUTO_IDENTIFIER/RACK_POSITION.
+  VM_IDENTIFIER
 
   @@map("field_type")
 }
@@ -545,6 +563,35 @@ model FieldDefinition {
   // defined/edited in the same request). See FieldType.RACK_POSITION doc
   // comment.
   rackPositionRackFieldKey          String? @map("rack_position_rack_field_key")
+  // Only meaningful for VM_IDENTIFIER fields (3 September 2026) — same
+  // "sibling field key, not FK id" pattern as autoIdentifierRackFieldKey
+  // above: the key of a field on this SAME ObjectType that must be
+  // OBJECT_REFERENCE with referenceTargetKind = OBJECT_TYPE and a fixed
+  // referenceObjectTypeId (i.e. restricted to one specific Cluster-type
+  // passport, not "any type") — that field supplies which cluster this VM
+  // belongs to. See FieldType.VM_IDENTIFIER doc comment and
+  // validateVmIdentifierConfig in object-types/actions.ts.
+  vmIdentifierClusterFieldKey        String? @map("vm_identifier_cluster_field_key")
+  // Only meaningful for VM_IDENTIFIER fields — the key of a field, but on
+  // the CLUSTER ObjectType (the one vmIdentifierClusterFieldKey's target is
+  // restricted to), not on this VM's own ObjectType — that field must be
+  // TEXT and holds the cluster passport's own short code (e.g. "prx1").
+  // Cross-type by design: a VM_IDENTIFIER field is configured once per VM
+  // ObjectType, but needs to read a value off whichever specific cluster
+  // passport each individual VM ends up pointing at, and that cluster
+  // passport's code is a plain field on its own type, not a schema column
+  // (Cluster is just an ObjectType like any other — see
+  // it-passports-design.md section 8.15 for why this wasn't instead made a
+  // schema column the way Location.code anchors AUTO_IDENTIFIER).
+  vmIdentifierClusterCodeFieldKey    String? @map("vm_identifier_cluster_code_field_key")
+  // Only meaningful for VM_IDENTIFIER fields — the key of a TEXT field on
+  // this same ObjectType holding the manually-typed information-system
+  // code (deliberately not a reference to an actual passport — see
+  // it-passports-design.md section 8.15 for the reasoning).
+  vmIdentifierIsCodeFieldKey         String? @map("vm_identifier_is_code_field_key")
+  // Only meaningful for VM_IDENTIFIER fields — the key of a SELECT field on
+  // this same ObjectType holding the VM's role (Web/App/DB/...).
+  vmIdentifierRoleFieldKey           String? @map("vm_identifier_role_field_key")
   // Only meaningful for OBJECT_REFERENCE fields with referenceTargetKind =
   // OBJECT_TYPE (passport-to-passport links) — see RelationshipType above.
   // Left null for referenceTargetKind = LOCATION fields (always containment,
@@ -567,6 +614,7 @@ model FieldDefinition {
   ipAddressLinks         FieldIpAddressValue[]
   objectReferenceLinks   FieldObjectReferenceValue[]
   autoIdentifierLinks    FieldAutoIdentifierValue[]
+  vmIdentifierLinks      FieldVmIdentifierValue[]
 
   @@unique([objectTypeId, key])
   @@index([objectTypeId])
@@ -711,6 +759,16 @@ model ObjectInstance {
   // identifier only ever needs to be unique among *currently existing*
   // equipment).
   autoIdentifierLinks    FieldAutoIdentifierValue[]
+  // This VM's own VM_IDENTIFIER field value (3 September 2026) — cascades
+  // when this passport is deleted, same reasoning as autoIdentifierLinks.
+  vmIdentifierLinks      FieldVmIdentifierValue[]         @relation("FieldVmIdentifierOwner")
+  // Other passports' VM_IDENTIFIER values currently pointing AT this
+  // passport as their cluster (the referenced side) — onDelete: Restrict
+  // on that table's targetClusterInstance is what stops a Cluster passport
+  // from being deleted while a VM's already-issued identifier still refers
+  // to it; deletePassport checks this proactively, same pattern as
+  // referencedByFields above.
+  referencedByVmIdentifiers FieldVmIdentifierValue[]      @relation("FieldVmIdentifierClusterTarget")
 
   @@index([objectTypeId])
   @@index([status])
@@ -907,4 +965,40 @@ model FieldAutoIdentifierValue {
   @@index([targetLocationId])
   @@index([equipmentTypeCodeId])
   @@map("field_auto_identifier_values")
+}
+
+// Relational mirror of already-issued VM_IDENTIFIER values (3 September
+// 2026, CMDB — clusters/VMs, see it-passports-design.md section 8.15).
+// Same "generated once, never reissued" rule and shape as
+// FieldAutoIdentifierValue above — @@unique([objectInstanceId,
+// fieldDefinitionId]) is what syncVmIdentifierValue checks first to decide
+// "already have one, just carry it forward" vs "generate a new one" — but
+// scoped by (cluster, information-system code, role) instead of (rack,
+// equipment-type code), matching the different naming formula.
+// isCode/role are denormalized copies of what was on the VM passport at
+// generation time, frozen from then on (same reasoning as
+// FieldAutoIdentifierValue not re-deriving from the current field values —
+// editing the cluster/IS/role on an already-identified VM must not shift
+// its issued number or free it for reuse, since it may already be printed
+// on documentation elsewhere).
+model FieldVmIdentifierValue {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectInstanceId        String   @map("object_instance_id") @db.Uuid
+  fieldDefinitionId       String   @map("field_definition_id") @db.Uuid
+  targetClusterInstanceId String   @map("target_cluster_instance_id") @db.Uuid
+  isCode                  String   @map("is_code")
+  role                    String
+  seq                     Int
+  value                   String
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  objectInstance        ObjectInstance  @relation("FieldVmIdentifierOwner", fields: [objectInstanceId], references: [id], onDelete: Cascade)
+  fieldDefinition        FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  targetClusterInstance ObjectInstance  @relation("FieldVmIdentifierClusterTarget", fields: [targetClusterInstanceId], references: [id], onDelete: Restrict)
+
+  @@unique([objectInstanceId, fieldDefinitionId])
+  @@unique([targetClusterInstanceId, isCode, role, seq])
+  @@index([targetClusterInstanceId])
+  @@map("field_vm_identifier_values")
 }

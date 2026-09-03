@@ -30,6 +30,7 @@ import {
 import {
   createFieldDefinition,
   updateFieldDefinition,
+  getObjectTypeFieldOptions,
 } from '@/app/(app)/object-types/actions';
 import {
   FIELD_TYPES,
@@ -101,6 +102,10 @@ type FormValues = {
   autoIdentifierRackFieldKey: string;
   autoIdentifierEquipmentTypeCodeId: string;
   rackPositionRackFieldKey: string;
+  vmIdentifierClusterFieldKey: string;
+  vmIdentifierClusterCodeFieldKey: string;
+  vmIdentifierIsCodeFieldKey: string;
+  vmIdentifierRoleFieldKey: string;
 };
 
 const EMPTY: FormValues = {
@@ -121,6 +126,10 @@ const EMPTY: FormValues = {
   autoIdentifierRackFieldKey: '',
   autoIdentifierEquipmentTypeCodeId: '',
   rackPositionRackFieldKey: '',
+  vmIdentifierClusterFieldKey: '',
+  vmIdentifierClusterCodeFieldKey: '',
+  vmIdentifierIsCodeFieldKey: '',
+  vmIdentifierRoleFieldKey: '',
 };
 
 export function FieldFormDialog({
@@ -140,6 +149,27 @@ export function FieldFormDialog({
       f.id !== field?.id &&
       f.type === 'OBJECT_REFERENCE' &&
       f.referenceTargetKind === 'LOCATION',
+  );
+  // Candidates for the VM_IDENTIFIER "cluster field" picker — sibling
+  // OBJECT_REFERENCE fields restricted to one fixed object type (i.e.
+  // referenceObjectTypeId set — "любой тип объекта" wouldn't tell us which
+  // type is "the cluster type" for the code-field picker below).
+  const vmClusterFieldCandidates = allFields.filter(
+    (f) =>
+      f.id !== field?.id &&
+      f.type === 'OBJECT_REFERENCE' &&
+      f.referenceTargetKind === 'OBJECT_TYPE' &&
+      !!f.referenceObjectTypeId,
+  );
+  // Candidates for the VM_IDENTIFIER "IS code field" picker — sibling TEXT
+  // fields on this same object type.
+  const vmIsCodeFieldCandidates = allFields.filter(
+    (f) => f.id !== field?.id && f.type === 'TEXT',
+  );
+  // Candidates for the VM_IDENTIFIER "role field" picker — sibling SELECT
+  // fields on this same object type.
+  const vmRoleFieldCandidates = allFields.filter(
+    (f) => f.id !== field?.id && f.type === 'SELECT',
   );
   const isEdit = !!field;
   const [submitting, setSubmitting] = React.useState(false);
@@ -165,6 +195,39 @@ export function FieldFormDialog({
 
   const type = watch('type');
   const visibleToAll = watch('visibleToAll');
+  const vmClusterFieldKey = watch('vmIdentifierClusterFieldKey');
+
+  // The Cluster ObjectType a VM_IDENTIFIER field's chosen cluster field
+  // resolves to — needed to fetch that type's own fields for the "код
+  // кластера" picker below, since vmIdentifierClusterCodeFieldKey names a
+  // field on the CLUSTER type, not on this VM's own type (see that
+  // column's doc comment in schema.prisma). Re-fetched whenever the
+  // selected cluster field changes.
+  const [clusterTypeFields, setClusterTypeFields] = React.useState<
+    { id: string; key: string; label: string; type: string }[]
+  >([]);
+  React.useEffect(() => {
+    const candidate = vmClusterFieldCandidates.find(
+      (f) => f.key === vmClusterFieldKey,
+    );
+    if (!candidate?.referenceObjectTypeId) {
+      setClusterTypeFields([]);
+      return;
+    }
+    let cancelled = false;
+    getObjectTypeFieldOptions(candidate.referenceObjectTypeId).then(
+      (fields) => {
+        if (!cancelled) setClusterTypeFields(fields);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vmClusterFieldKey]);
+  const vmClusterCodeFieldCandidates = clusterTypeFields.filter(
+    (f) => f.type === 'TEXT',
+  );
 
   React.useEffect(() => {
     if (!open) return;
@@ -212,6 +275,11 @@ export function FieldFormDialog({
         autoIdentifierEquipmentTypeCodeId:
           field.autoIdentifierEquipmentTypeCodeId ?? '',
         rackPositionRackFieldKey: field.rackPositionRackFieldKey ?? '',
+        vmIdentifierClusterFieldKey: field.vmIdentifierClusterFieldKey ?? '',
+        vmIdentifierClusterCodeFieldKey:
+          field.vmIdentifierClusterCodeFieldKey ?? '',
+        vmIdentifierIsCodeFieldKey: field.vmIdentifierIsCodeFieldKey ?? '',
+        vmIdentifierRoleFieldKey: field.vmIdentifierRoleFieldKey ?? '',
       });
     } else {
       reset(EMPTY);
@@ -273,6 +341,25 @@ export function FieldFormDialog({
     if (values.type === 'RACK_POSITION' && !values.rackPositionRackFieldKey) {
       toast.error('Выберите поле со стойкой');
       return;
+    }
+
+    if (values.type === 'VM_IDENTIFIER') {
+      if (!values.vmIdentifierClusterFieldKey) {
+        toast.error('Выберите поле с кластером');
+        return;
+      }
+      if (!values.vmIdentifierClusterCodeFieldKey) {
+        toast.error('Выберите поле с кодом кластера');
+        return;
+      }
+      if (!values.vmIdentifierIsCodeFieldKey) {
+        toast.error('Выберите поле с кодом информационной системы');
+        return;
+      }
+      if (!values.vmIdentifierRoleFieldKey) {
+        toast.error('Выберите поле с ролью');
+        return;
+      }
     }
 
     const tableColumns = values.tableColumns
@@ -367,6 +454,22 @@ export function FieldFormDialog({
       rackPositionRackFieldKey:
         values.type === 'RACK_POSITION'
           ? values.rackPositionRackFieldKey || null
+          : null,
+      vmIdentifierClusterFieldKey:
+        values.type === 'VM_IDENTIFIER'
+          ? values.vmIdentifierClusterFieldKey || null
+          : null,
+      vmIdentifierClusterCodeFieldKey:
+        values.type === 'VM_IDENTIFIER'
+          ? values.vmIdentifierClusterCodeFieldKey || null
+          : null,
+      vmIdentifierIsCodeFieldKey:
+        values.type === 'VM_IDENTIFIER'
+          ? values.vmIdentifierIsCodeFieldKey || null
+          : null,
+      vmIdentifierRoleFieldKey:
+        values.type === 'VM_IDENTIFIER'
+          ? values.vmIdentifierRoleFieldKey || null
           : null,
     };
 
@@ -759,6 +862,144 @@ export function FieldFormDialog({
             </div>
           ) : null}
 
+          {type === 'VM_IDENTIFIER' ? (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                Значение вычисляется автоматически при заполнении КЕ — из
+                выбранного кластера, кода информационной системы, роли и
+                следующего свободного номера («код_кластера-код_ИС-роль- номер»,
+                например «prx1-biling-app-2»). Ввести вручную нельзя. Один раз
+                присвоенный идентификатор больше не меняется, даже если кластер,
+                код ИС или роль потом изменить.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Поле с кластером</Label>
+                {vmClusterFieldCandidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    На этом типе объекта нет полей «Ссылка на объект CMDB»,
+                    настроенных на один конкретный тип объекта (не «любой») —
+                    сначала добавьте такое поле, ссылающееся на тип «Кластер
+                    виртуализации».
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="vmIdentifierClusterFieldKey"
+                    render={({ field: f }) => (
+                      <Select
+                        value={f.value}
+                        onValueChange={(value) => {
+                          f.onChange(value);
+                          setValue('vmIdentifierClusterCodeFieldKey', '');
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поле…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vmClusterFieldCandidates.map((cf) => (
+                            <SelectItem key={cf.id} value={cf.key}>
+                              {cf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Поле с кодом кластера (на типе «Кластер»)</Label>
+                {!vmClusterFieldKey ? (
+                  <p className="text-sm text-muted-foreground">
+                    Сначала выберите поле с кластером выше.
+                  </p>
+                ) : vmClusterCodeFieldCandidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    На типе объекта, куда ссылается выбранное поле, нет
+                    текстовых полей — сначала добавьте туда поле с коротким
+                    кодом кластера (например, «prx1»).
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="vmIdentifierClusterCodeFieldKey"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поле…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vmClusterCodeFieldCandidates.map((cf) => (
+                            <SelectItem key={cf.id} value={cf.key}>
+                              {cf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Поле с кодом информационной системы</Label>
+                {vmIsCodeFieldCandidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    На этом типе объекта нет текстовых полей — сначала добавьте
+                    поле для кода информационной системы.
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="vmIdentifierIsCodeFieldKey"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поле…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vmIsCodeFieldCandidates.map((cf) => (
+                            <SelectItem key={cf.id} value={cf.key}>
+                              {cf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Поле с ролью</Label>
+                {vmRoleFieldCandidates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    На этом типе объекта нет полей «Список выбора» — сначала
+                    добавьте поле с ролью (Web/App/DB/…).
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="vmIdentifierRoleFieldKey"
+                    render={({ field: f }) => (
+                      <Select value={f.value} onValueChange={f.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите поле…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vmRoleFieldCandidates.map((cf) => (
+                            <SelectItem key={cf.id} value={cf.key}>
+                              {cf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {type === 'SELECT' ? (
             <div className="space-y-2 rounded-md border p-3">
               <Label>Варианты выбора</Label>
@@ -1005,7 +1246,7 @@ export function FieldFormDialog({
             </div>
           ) : null}
 
-          {type !== 'AUTO_IDENTIFIER' ? (
+          {type !== 'AUTO_IDENTIFIER' && type !== 'VM_IDENTIFIER' ? (
             <div className="flex items-center justify-between rounded-md border p-3">
               <div className="space-y-0.5">
                 <Label>Обязательное поле</Label>

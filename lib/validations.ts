@@ -281,6 +281,12 @@ export const FIELD_DEFINITION_TYPES = [
   // it-passports-design.md section 8.8. Deliberately not in
   // TABLE_COLUMN_TYPES below, same reasoning as AUTO_IDENTIFIER.
   'RACK_POSITION',
+  // Computed VM identifier (CMDB — clusters/VMs, 3 September 2026) — see
+  // schema.prisma's FieldType.VM_IDENTIFIER doc comment and
+  // it-passports-design.md section 8.15. Same idea as AUTO_IDENTIFIER, a
+  // different composition formula. Deliberately not in TABLE_COLUMN_TYPES
+  // below, same reasoning as AUTO_IDENTIFIER/RACK_POSITION.
+  'VM_IDENTIFIER',
 ] as const;
 
 // Which kind of object an OBJECT_REFERENCE field/column points to — mirrors
@@ -420,6 +426,15 @@ export const fieldDefinitionSchema = z
     // Only meaningful when type is 'RACK_POSITION' — see
     // FieldDefinition.rackPositionRackFieldKey in schema.prisma.
     rackPositionRackFieldKey: z.string().min(1).optional().nullable(),
+    // Only meaningful when type is 'VM_IDENTIFIER' — see
+    // FieldDefinition.vmIdentifierClusterFieldKey and the three fields next
+    // to it in schema.prisma. vmIdentifierClusterCodeFieldKey is the key of
+    // a field on the CLUSTER ObjectType (not this VM's own type) — see that
+    // column's doc comment for why it's cross-type.
+    vmIdentifierClusterFieldKey: z.string().min(1).optional().nullable(),
+    vmIdentifierClusterCodeFieldKey: z.string().min(1).optional().nullable(),
+    vmIdentifierIsCodeFieldKey: z.string().min(1).optional().nullable(),
+    vmIdentifierRoleFieldKey: z.string().min(1).optional().nullable(),
   })
   .refine((data) => data.type !== 'SELECT' || data.options.length > 0, {
     message: 'Add at least one option',
@@ -468,6 +483,37 @@ export const fieldDefinitionSchema = z
     {
       message: 'Choose which field on this type supplies the rack',
       path: ['rackPositionRackFieldKey'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'VM_IDENTIFIER' || !!data.vmIdentifierClusterFieldKey,
+    {
+      message: 'Choose which field on this type supplies the cluster',
+      path: ['vmIdentifierClusterFieldKey'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'VM_IDENTIFIER' || !!data.vmIdentifierClusterCodeFieldKey,
+    {
+      message: 'Choose which field on the cluster type supplies its code',
+      path: ['vmIdentifierClusterCodeFieldKey'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== 'VM_IDENTIFIER' || !!data.vmIdentifierIsCodeFieldKey,
+    {
+      message: 'Choose which field on this type supplies the IS code',
+      path: ['vmIdentifierIsCodeFieldKey'],
+    },
+  )
+  .refine(
+    (data) => data.type !== 'VM_IDENTIFIER' || !!data.vmIdentifierRoleFieldKey,
+    {
+      message: 'Choose which field on this type supplies the role',
+      path: ['vmIdentifierRoleFieldKey'],
     },
   );
 

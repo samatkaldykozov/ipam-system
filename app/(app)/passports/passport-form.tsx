@@ -594,6 +594,15 @@ export function PassportForm({
                       'будет присвоено после сохранения'
                     }
                   />
+                ) : field.type === 'VM_IDENTIFIER' ? (
+                  <Input
+                    disabled
+                    className="font-mono text-muted-foreground"
+                    value={
+                      (values[field.key] as string) ||
+                      'будет присвоено после сохранения'
+                    }
+                  />
                 ) : field.type === 'RACK_POSITION' ? (
                   <RackPositionField
                     value={(values[field.key] as string) ?? ''}

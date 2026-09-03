@@ -75,6 +75,23 @@ export async function getObjectTypeOptions() {
   });
 }
 
+// Lightweight list of an object type's own fields — used by the
+// VM_IDENTIFIER "код кластера" picker (field-form-dialog.tsx) to offer TEXT
+// fields belonging to whichever Cluster-type ObjectType the field's own
+// "cluster" picker currently resolves to, not the VM's own ObjectType (see
+// vmIdentifierClusterCodeFieldKey's doc comment in schema.prisma for why
+// this is cross-type). Same passport-admin gate and id/key/label/type
+// shape as getObjectTypeOptions above.
+export async function getObjectTypeFieldOptions(objectTypeId: string) {
+  const currentUser = await requirePassportAdmin();
+  if (!currentUser) return [];
+  return prisma.fieldDefinition.findMany({
+    where: { objectTypeId },
+    orderBy: { order: 'asc' },
+    select: { id: true, key: true, label: true, type: true },
+  });
+}
+
 export async function getObjectType(id: string) {
   return prisma.objectType.findUnique({
     where: { id },
@@ -328,6 +345,13 @@ type FieldDefinitionInput = {
   // Only meaningful when type is 'RACK_POSITION' — see
   // FieldDefinition.rackPositionRackFieldKey in schema.prisma.
   rackPositionRackFieldKey?: string | null;
+  // Only meaningful when type is 'VM_IDENTIFIER' — see
+  // FieldDefinition.vmIdentifierClusterFieldKey and the three fields next
+  // to it in schema.prisma.
+  vmIdentifierClusterFieldKey?: string | null;
+  vmIdentifierClusterCodeFieldKey?: string | null;
+  vmIdentifierIsCodeFieldKey?: string | null;
+  vmIdentifierRoleFieldKey?: string | null;
 };
 
 // Pre-check run before create/update, mirroring the pattern used for
@@ -454,6 +478,134 @@ async function validateRackPositionConfig(
   return null;
 }
 
+// Pre-check for VM_IDENTIFIER fields (CMDB — clusters/VMs, 3 September
+// 2026, see it-passports-design.md section 8.15). Four sibling-field-key
+// checks, three of them the familiar "key of a field on this same
+// ObjectType" shape used by AUTO_IDENTIFIER/RACK_POSITION above:
+//   * vmIdentifierClusterFieldKey must name a sibling field on THIS
+//     ObjectType that is OBJECT_REFERENCE targeting OBJECT_TYPE with a
+//     *fixed* referenceObjectTypeId (i.e. restricted to one specific
+//     Cluster-type passport, not "any type" — unlike a patch-cord column,
+//     a VM_IDENTIFIER field needs to know exactly which ObjectType is "the
+//     cluster type" so vmIdentifierClusterCodeFieldKey below can be
+//     resolved against it).
+//   * vmIdentifierIsCodeFieldKey must name a sibling TEXT field on this
+//     ObjectType.
+//   * vmIdentifierRoleFieldKey must name a sibling SELECT field on this
+//     ObjectType.
+// vmIdentifierClusterCodeFieldKey is the odd one out — it's cross-type: it
+// must name a TEXT field, but on the Cluster ObjectType that
+// vmIdentifierClusterFieldKey's target is restricted to, not on this VM's
+// own ObjectType. That target type is only known once the cluster field
+// itself has been validated above, so this check runs second and depends
+// on the first one's result.
+async function validateVmIdentifierConfig(
+  data: Pick<
+    FieldDefinitionInput,
+    | 'type'
+    | 'vmIdentifierClusterFieldKey'
+    | 'vmIdentifierClusterCodeFieldKey'
+    | 'vmIdentifierIsCodeFieldKey'
+    | 'vmIdentifierRoleFieldKey'
+  >,
+  objectTypeId: string,
+  excludeFieldId?: string,
+): Promise<{
+  clusterFieldKey?: string;
+  clusterCodeFieldKey?: string;
+  isCodeFieldKey?: string;
+  roleFieldKey?: string;
+} | null> {
+  if (data.type !== 'VM_IDENTIFIER') return null;
+
+  const errors: {
+    clusterFieldKey?: string;
+    clusterCodeFieldKey?: string;
+    isCodeFieldKey?: string;
+    roleFieldKey?: string;
+  } = {};
+
+  let clusterObjectTypeId: string | null = null;
+  if (data.vmIdentifierClusterFieldKey) {
+    const clusterField = await prisma.fieldDefinition.findFirst({
+      where: {
+        objectTypeId,
+        key: data.vmIdentifierClusterFieldKey,
+        ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+      },
+      select: {
+        type: true,
+        referenceTargetKind: true,
+        referenceObjectTypeId: true,
+      },
+    });
+    if (
+      !clusterField ||
+      clusterField.type !== 'OBJECT_REFERENCE' ||
+      clusterField.referenceTargetKind !== 'OBJECT_TYPE' ||
+      !clusterField.referenceObjectTypeId
+    ) {
+      errors.clusterFieldKey =
+        'Selected field must be an OBJECT_REFERENCE field on this type, linking to one fixed object type';
+    } else {
+      clusterObjectTypeId = clusterField.referenceObjectTypeId;
+    }
+  }
+
+  if (data.vmIdentifierClusterCodeFieldKey) {
+    if (!clusterObjectTypeId) {
+      // Cluster field itself is missing/invalid — nothing to check the
+      // code field against. The cluster-field error above already covers
+      // this case, so this branch stays silent rather than reporting a
+      // confusing second error.
+    } else {
+      const codeField = await prisma.fieldDefinition.findFirst({
+        where: {
+          objectTypeId: clusterObjectTypeId,
+          key: data.vmIdentifierClusterCodeFieldKey,
+        },
+        select: { type: true },
+      });
+      if (!codeField || codeField.type !== 'TEXT') {
+        errors.clusterCodeFieldKey =
+          'Selected field must be a TEXT field on the cluster type';
+      }
+    }
+  }
+
+  if (data.vmIdentifierIsCodeFieldKey) {
+    const isCodeField = await prisma.fieldDefinition.findFirst({
+      where: {
+        objectTypeId,
+        key: data.vmIdentifierIsCodeFieldKey,
+        ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+      },
+      select: { type: true },
+    });
+    if (!isCodeField || isCodeField.type !== 'TEXT') {
+      errors.isCodeFieldKey =
+        'Selected field must be a TEXT field on this type';
+    }
+  }
+
+  if (data.vmIdentifierRoleFieldKey) {
+    const roleField = await prisma.fieldDefinition.findFirst({
+      where: {
+        objectTypeId,
+        key: data.vmIdentifierRoleFieldKey,
+        ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}),
+      },
+      select: { type: true },
+    });
+    if (!roleField || roleField.type !== 'SELECT') {
+      errors.roleFieldKey =
+        'Selected field must be a SELECT field on this type';
+    }
+  }
+
+  return Object.keys(errors).length > 0 ? errors : null;
+}
+
 // Returns the `order` value a field should be placed right after, so it
 // lands adjacent to its section's other fields (or at the very end of the
 // type, for a brand-new section or no section at all).
@@ -570,6 +722,27 @@ export async function createFieldDefinition(
     };
   }
 
+  const vmIdErrors = await validateVmIdentifierConfig(data, objectTypeId);
+  if (vmIdErrors) {
+    return {
+      ok: false,
+      fieldErrors: {
+        ...(vmIdErrors.clusterFieldKey
+          ? { vmIdentifierClusterFieldKey: vmIdErrors.clusterFieldKey }
+          : {}),
+        ...(vmIdErrors.clusterCodeFieldKey
+          ? { vmIdentifierClusterCodeFieldKey: vmIdErrors.clusterCodeFieldKey }
+          : {}),
+        ...(vmIdErrors.isCodeFieldKey
+          ? { vmIdentifierIsCodeFieldKey: vmIdErrors.isCodeFieldKey }
+          : {}),
+        ...(vmIdErrors.roleFieldKey
+          ? { vmIdentifierRoleFieldKey: vmIdErrors.roleFieldKey }
+          : {}),
+      },
+    };
+  }
+
   // Place the new field right after the last existing field of the same
   // section (or at the very end, for a new section) — see
   // nextOrderForSection above for why this has to account for section
@@ -598,7 +771,10 @@ export async function createFieldDefinition(
           helpText: data.helpText || null,
           type: data.type as FieldType,
           order: insertAfterOrder + 1,
-          required: data.type === 'AUTO_IDENTIFIER' ? false : data.required,
+          required:
+            data.type === 'AUTO_IDENTIFIER' || data.type === 'VM_IDENTIFIER'
+              ? false
+              : data.required,
           visibleToAll: data.visibleToAll,
           validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
           referenceTargetKind:
@@ -624,6 +800,22 @@ export async function createFieldDefinition(
           rackPositionRackFieldKey:
             data.type === 'RACK_POSITION'
               ? data.rackPositionRackFieldKey
+              : null,
+          vmIdentifierClusterFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierClusterFieldKey
+              : null,
+          vmIdentifierClusterCodeFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierClusterCodeFieldKey
+              : null,
+          vmIdentifierIsCodeFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierIsCodeFieldKey
+              : null,
+          vmIdentifierRoleFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierRoleFieldKey
               : null,
           options:
             data.type === 'SELECT'
@@ -740,6 +932,31 @@ export async function updateFieldDefinition(
     };
   }
 
+  const vmIdErrors = await validateVmIdentifierConfig(
+    data,
+    existing.objectTypeId,
+    fieldId,
+  );
+  if (vmIdErrors) {
+    return {
+      ok: false,
+      fieldErrors: {
+        ...(vmIdErrors.clusterFieldKey
+          ? { vmIdentifierClusterFieldKey: vmIdErrors.clusterFieldKey }
+          : {}),
+        ...(vmIdErrors.clusterCodeFieldKey
+          ? { vmIdentifierClusterCodeFieldKey: vmIdErrors.clusterCodeFieldKey }
+          : {}),
+        ...(vmIdErrors.isCodeFieldKey
+          ? { vmIdentifierIsCodeFieldKey: vmIdErrors.isCodeFieldKey }
+          : {}),
+        ...(vmIdErrors.roleFieldKey
+          ? { vmIdentifierRoleFieldKey: vmIdErrors.roleFieldKey }
+          : {}),
+      },
+    };
+  }
+
   // Only reposition the field if its section is actually changing — normal
   // edits (label, type, options, …) that keep the same section shouldn't
   // touch `order` at all. When the section does change, the field needs to
@@ -785,7 +1002,10 @@ export async function updateFieldDefinition(
           label: data.label,
           helpText: data.helpText || null,
           type: data.type as FieldType,
-          required: data.type === 'AUTO_IDENTIFIER' ? false : data.required,
+          required:
+            data.type === 'AUTO_IDENTIFIER' || data.type === 'VM_IDENTIFIER'
+              ? false
+              : data.required,
           visibleToAll: data.visibleToAll,
           validateAsIp: data.type === 'TEXT' ? data.validateAsIp : false,
           referenceTargetKind:
@@ -811,6 +1031,22 @@ export async function updateFieldDefinition(
           rackPositionRackFieldKey:
             data.type === 'RACK_POSITION'
               ? data.rackPositionRackFieldKey
+              : null,
+          vmIdentifierClusterFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierClusterFieldKey
+              : null,
+          vmIdentifierClusterCodeFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierClusterCodeFieldKey
+              : null,
+          vmIdentifierIsCodeFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierIsCodeFieldKey
+              : null,
+          vmIdentifierRoleFieldKey:
+            data.type === 'VM_IDENTIFIER'
+              ? data.vmIdentifierRoleFieldKey
               : null,
           options:
             data.type === 'SELECT'

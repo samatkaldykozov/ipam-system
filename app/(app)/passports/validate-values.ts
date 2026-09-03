@@ -48,9 +48,10 @@ export function validatePassportValues(
       continue;
     }
 
-    if (field.type === 'AUTO_IDENTIFIER') {
+    if (field.type === 'AUTO_IDENTIFIER' || field.type === 'VM_IDENTIFIER') {
       // Never entered by hand — computed server-side by
-      // syncAutoIdentifierValues (auto-identifier-utils.ts), called from
+      // syncAutoIdentifierValues/syncVmIdentifierValue
+      // (auto-identifier-utils.ts / vm-identifier-utils.ts), called from
       // createPassport/updatePassport *after* this validation step (it
       // needs the real ObjectInstance id). Skip the generic required-check
       // and raw-value capture entirely; the caller injects the computed

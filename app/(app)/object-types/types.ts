@@ -27,6 +27,7 @@ export const FIELD_TYPE_LABELS: Record<string, string> = {
   OBJECT_REFERENCE: 'Ссылка на объект CMDB',
   AUTO_IDENTIFIER: 'Составной идентификатор (авто)',
   RACK_POSITION: 'Позиция в стойке (юниты)',
+  VM_IDENTIFIER: 'Идентификатор ВМ (авто)',
 };
 
 export { REFERENCE_TARGET_KINDS, TABLE_COLUMN_TYPES };

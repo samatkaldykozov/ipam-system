@@ -69,7 +69,10 @@ function formatFieldValue(type: string, value: unknown): ReactNode {
       </a>
     );
   }
-  if (type === 'AUTO_IDENTIFIER' && typeof value === 'string') {
+  if (
+    (type === 'AUTO_IDENTIFIER' || type === 'VM_IDENTIFIER') &&
+    typeof value === 'string'
+  ) {
     return (
       <code className="rounded bg-muted px-1.5 py-0.5 text-sm">{value}</code>
     );

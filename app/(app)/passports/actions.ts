@@ -49,6 +49,11 @@ import {
   syncAutoIdentifierValues,
   validateAutoIdentifierRackValues,
 } from '@/app/(app)/passports/auto-identifier-utils';
+import {
+  vmIdentifierFields,
+  syncVmIdentifierValue,
+  validateVmIdentifierFields,
+} from '@/app/(app)/passports/vm-identifier-utils';
 
 export type ActionResult<T = void> = {
   ok: boolean;
@@ -1005,9 +1010,15 @@ export async function createPassport(
       validateObjectReferenceValues(objectRefFields, validated.data.values),
       validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
     ]);
-  // No existing passport yet, so no AUTO_IDENTIFIER value can already be
-  // generated — every such field on this type needs its rack filled in.
+  // No existing passport yet, so no AUTO_IDENTIFIER/VM_IDENTIFIER value can
+  // already be generated — every such field on this type needs its source
+  // fields filled in.
   const autoIdErrors = validateAutoIdentifierRackValues(
+    objectType.fields,
+    validated.data.values,
+    null,
+  );
+  const vmIdErrors = validateVmIdentifierFields(
     objectType.fields,
     validated.data.values,
     null,
@@ -1018,6 +1029,7 @@ export async function createPassport(
     ...objectRefErrors,
     ...tableObjectRefErrors,
     ...autoIdErrors,
+    ...vmIdErrors,
   };
   if (Object.keys(combinedIpRefErrors).length > 0) {
     return { ok: false, fieldErrors: combinedIpRefErrors };
@@ -1025,6 +1037,7 @@ export async function createPassport(
 
   const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
   const autoIdFields = autoIdentifierFields(objectType.fields);
+  const vmIdFields = vmIdentifierFields(objectType.fields);
 
   try {
     const instance = await prisma.$transaction(async (tx) => {
@@ -1071,13 +1084,20 @@ export async function createPassport(
       await syncTableCellIpAddressLinks(tx, created.id, tableFields);
       await syncTableCellObjectReferenceLinks(tx, created.id, tableFields);
 
-      if (autoIdFields.length > 0) {
+      if (autoIdFields.length > 0 || vmIdFields.length > 0) {
         // Needs created.id, so this can only run after the create above —
         // mutates validated.data.values in place, then that has to be
         // persisted with a follow-up write, since the initial create above
         // never had these keys in its `values` (see
-        // validatePassportValues's AUTO_IDENTIFIER branch).
+        // validatePassportValues's AUTO_IDENTIFIER/VM_IDENTIFIER branch).
         await syncAutoIdentifierValues(
+          tx,
+          created.id,
+          objectType.fields,
+          validated.data.values,
+          null,
+        );
+        await syncVmIdentifierValue(
           tx,
           created.id,
           objectType.fields,
@@ -1167,9 +1187,15 @@ export async function updatePassport(
       validateTableObjectReferenceValues(tableFields, validated.data.tableRows),
     ]);
   // Fields that already have a generated value (existingValues) are
-  // skipped — editing the rack afterward doesn't retroactively invalidate
-  // an already-assigned identifier, see syncAutoIdentifierValues.
+  // skipped — editing the rack/cluster afterward doesn't retroactively
+  // invalidate an already-assigned identifier, see
+  // syncAutoIdentifierValues/syncVmIdentifierValue.
   const autoIdErrors = validateAutoIdentifierRackValues(
+    existing.objectType.fields,
+    validated.data.values,
+    existingValues,
+  );
+  const vmIdErrors = validateVmIdentifierFields(
     existing.objectType.fields,
     validated.data.values,
     existingValues,
@@ -1180,6 +1206,7 @@ export async function updatePassport(
     ...objectRefErrors,
     ...tableObjectRefErrors,
     ...autoIdErrors,
+    ...vmIdErrors,
   };
   if (Object.keys(combinedIpRefErrors).length > 0) {
     return { ok: false, fieldErrors: combinedIpRefErrors };
@@ -1187,6 +1214,7 @@ export async function updatePassport(
 
   const tableFieldByKey = new Map(tableFields.map((f) => [f.key, f] as const));
   const autoIdFields = autoIdentifierFields(existing.objectType.fields);
+  const vmIdFields = vmIdentifierFields(existing.objectType.fields);
 
   // Structured change history (2 September 2026, CMDB phase 7) — computed
   // from the *old* state fetched above, before anything is written. Has to
@@ -1314,11 +1342,19 @@ export async function updatePassport(
       await syncTableCellIpAddressLinks(tx, id, tableFields);
       await syncTableCellObjectReferenceLinks(tx, id, tableFields);
 
-      if (autoIdFields.length > 0) {
+      if (autoIdFields.length > 0 || vmIdFields.length > 0) {
         // The initial update above never had these keys in `values` (see
-        // validatePassportValues's AUTO_IDENTIFIER branch) — mutate them in
-        // and persist with a follow-up write, same as createPassport.
+        // validatePassportValues's AUTO_IDENTIFIER/VM_IDENTIFIER branch) —
+        // mutate them in and persist with a follow-up write, same as
+        // createPassport.
         await syncAutoIdentifierValues(
+          tx,
+          id,
+          existing.objectType.fields,
+          validated.data.values,
+          existingValues,
+        );
+        await syncVmIdentifierValue(
           tx,
           id,
           existing.objectType.fields,
@@ -1361,7 +1397,12 @@ export async function deletePassport(id: string): Promise<ActionResult> {
   // schema.prisma), so deleting a referenced passport would otherwise fail
   // with a raw Prisma FK error. Check both first and name the passport(s)
   // instead — same pattern as deleteIpAddress in ip-addresses/actions.ts.
-  const [links, tableCellLinks] = await Promise.all([
+  // A VM_IDENTIFIER value on another passport can point at this one as a
+  // real foreign key too (onDelete: Restrict on targetClusterInstanceId —
+  // see FieldVmIdentifierValue in schema.prisma) — same reasoning as the
+  // OBJECT_REFERENCE checks above, checked separately since it isn't
+  // backed by FieldObjectReferenceValue/TableCellObjectReferenceValue.
+  const [links, tableCellLinks, vmIdentifierLinks] = await Promise.all([
     prisma.fieldObjectReferenceValue.findMany({
       where: { targetObjectInstanceId: id },
       take: 5,
@@ -1376,12 +1417,22 @@ export async function deletePassport(id: string): Promise<ActionResult> {
         },
       },
     }),
+    prisma.fieldVmIdentifierValue.findMany({
+      where: { targetClusterInstanceId: id },
+      take: 5,
+      include: { objectInstance: { select: { name: true } } },
+    }),
   ]);
-  if (links.length > 0 || tableCellLinks.length > 0) {
+  if (
+    links.length > 0 ||
+    tableCellLinks.length > 0 ||
+    vmIdentifierLinks.length > 0
+  ) {
     const names = Array.from(
       new Set([
         ...links.map((l) => l.objectInstance.name),
         ...tableCellLinks.map((l) => l.tableFieldRow.objectInstance.name),
+        ...vmIdentifierLinks.map((l) => l.objectInstance.name),
       ]),
     );
     return {
