@@ -11,9 +11,11 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getCurrentUser, hasPassportAccess } from '@/lib/auth';
 import { getImpactAnalysis } from '@/app/(app)/passports/actions';
 import type { ImpactNode, DirectImpact } from '@/app/(app)/passports/actions';
+import { ImpactGraph } from './impact-graph';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,59 +55,86 @@ export default async function ImpactAnalysisPage({
         </div>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ArrowDown className="h-4 w-4 text-destructive" />
-            Что пострадает, если этот объект выйдет из строя
-          </CardTitle>
-          <CardDescription>
-            КЕ, которые зависят от этого объекта — напрямую или через цепочку
-            зависимостей (связь «Зависит от»).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ImpactList
-            nodes={data.downstream}
-            emptyText="Ничего не зависит от этого объекта — на него никто не ссылается связью «Зависит от»."
-          />
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="list">
+        <TabsList>
+          <TabsTrigger value="list">Список</TabsTrigger>
+          <TabsTrigger value="diagram">Диаграмма</TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ArrowUp className="h-4 w-4 text-muted-foreground" />
-            От чего зависит этот объект
-          </CardTitle>
-          <CardDescription>
-            КЕ, без которых этот объект не может работать — напрямую или через
-            цепочку зависимостей.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ImpactList
-            nodes={data.upstream}
-            emptyText="Этот объект не сконфигурирован зависящим ни от чего (связь «Зависит от»)."
-          />
-        </CardContent>
-      </Card>
+        <TabsContent value="list" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ArrowDown className="h-4 w-4 text-destructive" />
+                Что пострадает, если этот объект выйдет из строя
+              </CardTitle>
+              <CardDescription>
+                КЕ, которые зависят от этого объекта — напрямую или через
+                цепочку зависимостей (связь «Зависит от»).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ImpactList
+                nodes={data.downstream}
+                emptyText="Ничего не зависит от этого объекта — на него никто не ссылается связью «Зависит от»."
+              />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Zap className="h-4 w-4 text-amber-500" />
-            Прямое влияние (вручную зафиксированное)
-          </CardTitle>
-          <CardDescription>
-            Связи типа «Влияет на» — прямые, не прослеживаются дальше по
-            цепочке.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DirectImpactList impacts={data.directImpacts} />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ArrowUp className="h-4 w-4 text-muted-foreground" />
+                От чего зависит этот объект
+              </CardTitle>
+              <CardDescription>
+                КЕ, без которых этот объект не может работать — напрямую или
+                через цепочку зависимостей.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ImpactList
+                nodes={data.upstream}
+                emptyText="Этот объект не сконфигурирован зависящим ни от чего (связь «Зависит от»)."
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Zap className="h-4 w-4 text-amber-500" />
+                Прямое влияние (вручную зафиксированное)
+              </CardTitle>
+              <CardDescription>
+                Связи типа «Влияет на» — прямые, не прослеживаются дальше по
+                цепочке.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DirectImpactList impacts={data.directImpacts} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="diagram">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Карта зависимостей</CardTitle>
+              <CardDescription>
+                Слева — то, что зависит от этого объекта (пострадает при
+                отказе), справа — то, от чего зависит сам объект. Пунктиром —
+                связи «Влияет на» между объектами, уже попавшими в цепочку.
+                Объекты, связанные только «Влияет на» без цепочки зависимостей
+                до этого объекта, здесь не показаны — см. список выше.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ImpactGraph data={data} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -520,6 +520,18 @@ export type DirectImpact = {
   direction: 'OUTGOING' | 'INCOMING';
 };
 
+// One drawable edge for the graphical view of the impact analysis (section
+// 8.18 "Визуальная карта сервиса" — the same tree the list view already
+// shows, section 8.13/8.10, just rendered as a diagram instead of text).
+// "from"/"to" follow the same direction as the underlying link (from
+// depends on to, for DEPENDENCY; from asserts impact on to, for IMPACT) —
+// the graph component decides how to draw the arrow.
+export type ImpactEdge = {
+  from: string;
+  to: string;
+  type: 'DEPENDENCY' | 'IMPACT';
+};
+
 export type ImpactAnalysis = {
   root: { id: string; name: string; typeName: string };
   // Passports that would be affected if this one stopped working — built by
@@ -536,6 +548,12 @@ export type ImpactAnalysis = {
   // admin asserting "A влияет на B" is a one-off judgment call, not
   // necessarily true of whatever B itself affects).
   directImpacts: DirectImpact[];
+  // Every edge connecting two nodes that already appear above (root ∪
+  // downstream ∪ upstream ∪ directImpacts) — just the already-fetched
+  // DEPENDENCY/IMPACT edge lists filtered down to this passport's reached
+  // subgraph, no new traversal. Powers the diagram view only; the list view
+  // above doesn't need it (depth grouping is enough there).
+  edges: ImpactEdge[];
   truncated: boolean;
 };
 
@@ -723,6 +741,25 @@ export async function getImpactAnalysis(
       : [];
   const byId = new Map(instances.map((i) => [i.id, i]));
 
+  // Subgraph for the diagram view: every DEPENDENCY edge already fetched
+  // above (fetchDependencyEdges), filtered to the two endpoints both being
+  // part of what's already shown (root plus every reached node) — not a new
+  // traversal, just reusing the flat edge list this function already has in
+  // hand. Direct IMPACT links become edges too, oriented per their
+  // direction so the diagram can draw them the same way as DEPENDENCY.
+  const relevantIds = new Set<string>([
+    objectInstanceId,
+    ...Array.from(allIds),
+  ]);
+  const dependencyGraphEdges: ImpactEdge[] = edges
+    .filter((e) => relevantIds.has(e.from) && relevantIds.has(e.to))
+    .map((e) => ({ from: e.from, to: e.to, type: 'DEPENDENCY' as const }));
+  const impactGraphEdges: ImpactEdge[] = directImpactIds.map((d) => ({
+    from: d.direction === 'OUTGOING' ? objectInstanceId : d.id,
+    to: d.direction === 'OUTGOING' ? d.id : objectInstanceId,
+    type: 'IMPACT' as const,
+  }));
+
   function toNode(entry: { id: string; depth: number }): ImpactNode | null {
     const i = byId.get(entry.id);
     if (!i) return null;
@@ -754,6 +791,7 @@ export async function getImpactAnalysis(
         };
       })
       .filter((n): n is DirectImpact => n !== null),
+    edges: [...dependencyGraphEdges, ...impactGraphEdges],
     truncated: downstreamBfs.truncated || upstreamBfs.truncated,
   };
 }
